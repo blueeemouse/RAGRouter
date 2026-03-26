@@ -1,0 +1,28 @@
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Data files (too large for git)
+Dataset/
+
+# Cache and drafts
+Cache/
+
+# Benchpaper drafts
+benchpaper/
+
+# Graph
+DrawGraph/
+
+# Large binary files
+*.faiss
+*.npz
+*.gpickle
+*.parquet
+
+detailed_replicate.md
+migration_plan.md
+.claude/
