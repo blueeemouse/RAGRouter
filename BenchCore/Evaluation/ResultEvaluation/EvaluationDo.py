@@ -42,17 +42,29 @@ class ResultEvaluator:
 
     def _setup_llm_client(self):
         """Setup LLM client for evaluation (sync and async)"""
-        model_config = LLMConfig.get_model_config()
-        self.model_name = model_config["model"]
+        # 评估专用 LLM: Llama 3.1 70B AWQ-INT4 (独立于 LLMConfig，避免影响 retrieve 阶段)
+        self.model_name = "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
         self.llm_client = OpenAI(
-            api_key=model_config["api_key"],
-            base_url=model_config["base_url"]
+            api_key="not-needed",
+            base_url="http://localhost:8000/v1"
         )
         self.async_llm_client = AsyncOpenAI(
-            api_key=model_config["api_key"],
-            base_url=model_config["base_url"]
+            api_key="not-needed",
+            base_url="http://localhost:8000/v1"
         )
         print(f"Initialized Evaluator LLM: {self.model_name}")
+        # 原代码: 从 LLMConfig 读取配置
+        # model_config = LLMConfig.get_model_config()
+        # self.model_name = model_config["model"]
+        # self.llm_client = OpenAI(
+        #     api_key=model_config["api_key"],
+        #     base_url=model_config["base_url"]
+        # )
+        # self.async_llm_client = AsyncOpenAI(
+        #     api_key=model_config["api_key"],
+        #     base_url=model_config["base_url"]
+        # )
+        # print(f"Initialized Evaluator LLM: {self.model_name}")
 
     def load_questions(self, dataset_name: str) -> Dict[int, Dict[str, Any]]:
         """Load questions with ground truth answers

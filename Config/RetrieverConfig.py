@@ -60,7 +60,8 @@ class RetrieverConfig:
     CACHE_RETRIEVAL_RESULTS = False             # Cache retrieval results (for debugging)
 
     # Iterative RAG Parameters
-    ITERATIVE_RETRIEVER = "graph"               # "naive" or "graph"
+    # ITERATIVE_RETRIEVER = "graph"               # "naive" or "graph"
+    ITERATIVE_RETRIEVER = "naive"               
     ITERATIVE_MAX_ITERATIONS = 3                # Maximum retrieval iterations
     ITERATIVE_EVAL_TEMPERATURE = 0.1            # Temperature for evaluator LLM
 
