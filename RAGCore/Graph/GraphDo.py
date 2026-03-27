@@ -356,6 +356,7 @@ class GraphProcessor:
             triplets_by_doc = {}
 
         # Extract triplets with incremental save
+        # (the incremental version only uses the async version of extract_triplets func)
         print("Extracting triplets...")
         triplets_by_doc = self.extract_triplets_incremental(chunks_by_doc, dataset_name, triplets_by_doc)
 
