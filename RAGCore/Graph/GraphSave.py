@@ -171,6 +171,26 @@ class GraphSaver:
             json.dump(failed_chunks, f, ensure_ascii=False, indent=2)
 
     @staticmethod
+    def save_failed_chunks(failed_chunks: List[Dict[str, Any]], dataset_name: str):
+        """Overwrite failed chunks file with the current unresolved failures
+
+        Args:
+            failed_chunks: Full list of unresolved failed chunk records
+            dataset_name: Name of the dataset
+        """
+        triplet_dir = PathConfig.get_triplet_path(dataset_name)
+        os.makedirs(triplet_dir, exist_ok=True)
+        failed_chunks_path = os.path.join(triplet_dir, "failed_chunks.json")
+
+        if not failed_chunks:
+            if os.path.exists(failed_chunks_path):
+                os.remove(failed_chunks_path)
+            return
+
+        with open(failed_chunks_path, 'w', encoding='utf-8') as f:
+            json.dump(failed_chunks, f, ensure_ascii=False, indent=2)
+
+    @staticmethod
     def load_failed_chunks(dataset_name: str) -> List[Dict[str, Any]]:
         """Load failed chunks for retry
 

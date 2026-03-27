@@ -370,10 +370,17 @@ class GraphProcessor:
                 print(f"Retrying {len(failed_chunks)} failed chunks...")
                 print(f"{'='*60}")
 
-                triplets_by_doc = self.retry_failed_chunks(failed_chunks, dataset_name, triplets_by_doc)
+                triplets_by_doc, still_failed_chunks = self.retry_failed_chunks(failed_chunks, dataset_name, triplets_by_doc)
 
-                # Clear failed chunks file after retry (whether successful or not)
-                GraphSaver.clear_failed_chunks(dataset_name)
+                if still_failed_chunks:
+                    failed_chunks_path = os.path.join(
+                        PathConfig.get_triplet_path(dataset_name),
+                        "failed_chunks.json"
+                    )
+                    raise RuntimeError(
+                        f"Triplet extraction still has {len(still_failed_chunks)} failed chunks after retry. "
+                        f"See {failed_chunks_path} and resolve them before building the graph."
+                    )
 
         # Build graph (entities are derived from triplets inside build_graph)
         print("Building knowledge graph...")
@@ -511,7 +518,7 @@ class GraphProcessor:
         return existing_triplets
 
     def retry_failed_chunks(self, failed_chunks: List[Dict[str, Any]], dataset_name: str,
-                           existing_triplets: Dict[int, List[Tuple[str, str, str]]]) -> Dict[int, List[Tuple[str, str, str]]]:
+                           existing_triplets: Dict[int, List[Tuple[str, str, str]]]) -> Tuple[Dict[int, List[Tuple[str, str, str]]], List[Dict[str, Any]]]:
         """Retry extraction for failed chunks
 
         Args:
@@ -520,17 +527,22 @@ class GraphProcessor:
             existing_triplets: Existing triplets to update
 
         Returns:
-            Updated triplets_by_doc with successful retries
+            Tuple of (updated triplets_by_doc, still_failed_chunks)
         """
         return asyncio.run(self._retry_failed_chunks_async(failed_chunks, dataset_name, existing_triplets))
 
     async def _retry_failed_chunks_async(self, failed_chunks: List[Dict[str, Any]], dataset_name: str,
-                                        existing_triplets: Dict[int, List[Tuple[str, str, str]]]) -> Dict[int, List[Tuple[str, str, str]]]:
+                                        existing_triplets: Dict[int, List[Tuple[str, str, str]]]) -> Tuple[Dict[int, List[Tuple[str, str, str]]], List[Dict[str, Any]]]:
         """Async retry of failed chunks with longer timeout"""
         if not failed_chunks:
-            return existing_triplets
+            return existing_triplets, []
 
         from RAGCore.Graph.GraphSave import GraphSaver
+
+        failed_chunk_map = {
+            (chunk_record["doc_id"], chunk_record["chunk_idx"]): chunk_record
+            for chunk_record in failed_chunks
+        }
 
         # Prepare retry tasks
         tasks = []
@@ -561,6 +573,7 @@ class GraphProcessor:
 
         # Organize successful retries by doc_id
         retry_triplets = {}
+        still_failed_chunks = []
         successful_retries = 0
         for doc_id, chunk_idx, triplets in results:
             if triplets:  # Only count successful extractions
@@ -568,6 +581,8 @@ class GraphProcessor:
                     retry_triplets[doc_id] = []
                 retry_triplets[doc_id].extend(triplets)
                 successful_retries += 1
+            else:
+                still_failed_chunks.append(failed_chunk_map[(doc_id, chunk_idx)])
 
         # Update existing triplets with successful retries
         for doc_id, doc_triplets in retry_triplets.items():
@@ -580,10 +595,15 @@ class GraphProcessor:
         if retry_triplets:
             GraphSaver.save_batch_triplets(retry_triplets, dataset_name)
             print(f"✓ Successfully retried {successful_retries}/{len(failed_chunks)} failed chunks")
-        else:
-            print(f"✗ All retry attempts failed ({len(failed_chunks)} chunks still failed)")
 
-        return existing_triplets
+        if still_failed_chunks:
+            GraphSaver.save_failed_chunks(still_failed_chunks, dataset_name)
+            print(f"✗ {len(still_failed_chunks)} chunks still failed after retry")
+        else:
+            GraphSaver.clear_failed_chunks(dataset_name)
+            print("✓ All failed chunks were successfully retried")
+
+        return existing_triplets, still_failed_chunks
 
     async def _extract_single_triplet_async(self, doc_id: int, chunk_idx: int, chunk: str,
                                            attempt: int = 0, dataset_name: str = None) -> Tuple[int, int, List[Dict[str, Any]]]:
