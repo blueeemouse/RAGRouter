@@ -14,6 +14,7 @@ from tqdm.asyncio import tqdm as atqdm
 from Config.LLMConfig import LLMConfig
 from Config.PathConfig import PathConfig
 from RAGCore.Prompt.PromptTemplate import PromptTemplate
+from RAGCore.Utils.TokenTracker import TokenTracker
 
 
 class LLMDirectProcessor:
@@ -72,11 +73,12 @@ class LLMDirectProcessor:
 
         return questions
 
-    def answer_question(self, question: str) -> str:
+    def answer_question(self, question: str, tracker: TokenTracker = None) -> str:
         """Answer a single question using LLM
 
         Args:
             question: The question text
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -92,17 +94,21 @@ class LLMDirectProcessor:
                 timeout=LLMConfig.TIMEOUT
             )
 
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_question")
+
             return response.choices[0].message.content.strip()
 
         except Exception as e:
             print(f"Error answering question: {e}")
             return None
 
-    async def answer_question_async(self, question: str) -> Optional[str]:
+    async def answer_question_async(self, question: str, tracker: TokenTracker = None) -> Optional[str]:
         """Async version: Answer a single question using LLM
 
         Args:
             question: The question text
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -117,6 +123,9 @@ class LLMDirectProcessor:
                 max_tokens=LLMConfig.MAX_TOKENS,
                 timeout=LLMConfig.TIMEOUT
             )
+
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_question_async")
 
             return response.choices[0].message.content.strip()
 
@@ -180,10 +189,11 @@ class LLMDirectProcessor:
                 continue
 
             # Answer question
-            answer = self.answer_question(question)
+            tracker = TokenTracker()
+            answer = self.answer_question(question, tracker=tracker)
 
             if answer is not None:
-                result = {"id": q_id, "llm_answer": answer}
+                result = {"id": q_id, "llm_answer": answer, "token_usage": tracker.to_dict()}
                 results.append(result)
                 processed_ids.add(q_id)
 
@@ -193,7 +203,7 @@ class LLMDirectProcessor:
                     LLMDirectSaver.save_answer(result, self.model_name, dataset_name)
             else:
                 # Record failure
-                error_result = {"id": q_id, "llm_answer": None}
+                error_result = {"id": q_id, "llm_answer": None, "token_usage": tracker.to_dict()}
                 results.append(error_result)
 
                 if resume:
@@ -272,12 +282,13 @@ class LLMDirectProcessor:
                 q_id = q_data['id']
                 question = q_data['question']
 
-                # Answer question
-                answer = await self.answer_question_async(question)
+                tracker = TokenTracker()
+                answer = await self.answer_question_async(question, tracker=tracker)
 
                 return {
                     "id": q_id,
-                    "llm_answer": answer
+                    "llm_answer": answer,
+                    "token_usage": tracker.to_dict()
                 }
 
         # Create all tasks
