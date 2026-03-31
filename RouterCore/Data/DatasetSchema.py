@@ -1,6 +1,6 @@
 """Shared constants and lightweight validation helpers for router data schemas."""
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 STRATEGY_NAMES: List[str] = [
@@ -32,3 +32,33 @@ def validate_strategy_names(strategy_names: List[str]) -> None:
     """Validate that a strategy list matches the agreed first-stage strategy space."""
     if strategy_names != STRATEGY_NAMES:
         raise ValueError(f"Strategy names must match first-stage strategy space: {STRATEGY_NAMES}")
+
+
+def get_strategy_index(strategy_name: str) -> int:
+    """Return the integer class index for a normalized strategy name."""
+    if strategy_name not in STRATEGY_TO_INDEX:
+        raise ValueError(f"Unknown strategy name: {strategy_name}")
+    return STRATEGY_TO_INDEX[strategy_name]
+
+
+def get_strategy_name(index: int) -> str:
+    """Return the normalized strategy name for a class index."""
+    if index not in INDEX_TO_STRATEGY:
+        raise ValueError(f"Unknown strategy index: {index}")
+    return INDEX_TO_STRATEGY[index]
+
+
+def build_empty_method_metrics() -> Dict[str, Dict[str, Any]]:
+    """Return the canonical per-method metrics skeleton for one query sample."""
+    return {
+        strategy: {
+            "llm_label": None,
+            "llm_reason": None,
+            "llm_judge_correct": None,
+            "semantic_f1": None,
+            "coverage": None,
+            "faithfulness_hard": None,
+            "faithfulness_soft": None,
+        }
+        for strategy in STRATEGY_NAMES
+    }
