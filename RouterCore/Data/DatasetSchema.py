@@ -1,4 +1,8 @@
-"""Shared constants and lightweight validation helpers for router data schemas."""
+"""Shared constants and lightweight validation helpers for router data schemas.
+
+First-stage router data should treat sample ids as strings (for example: "musique_0002").
+This matches the real benchmark data already produced by RAGRouter.
+"""
 
 from typing import Any, Dict, List
 
@@ -48,8 +52,19 @@ def get_strategy_name(index: int) -> str:
     return INDEX_TO_STRATEGY[index]
 
 
+def validate_sample_id(sample_id: str) -> None:
+    """Validate that a sample id is a non-empty string."""
+    if not isinstance(sample_id, str) or not sample_id.strip():
+        raise ValueError("Router sample id must be a non-empty string")
+
+
 def build_empty_method_metrics() -> Dict[str, Dict[str, Any]]:
-    """Return the canonical per-method metrics skeleton for one query sample."""
+    """Return the canonical per-method metrics skeleton for one query sample.
+
+    Note:
+    - `token_usage` is intentionally not part of the mandatory first-stage schema.
+    - It may be added later as an optional extension field when cost-aware routing is introduced.
+    """
     return {
         strategy: {
             "llm_label": None,
