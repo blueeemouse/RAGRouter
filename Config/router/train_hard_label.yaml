@@ -1,0 +1,17 @@
+model:
+  model_type: hard_classification_baseline
+  backbone_name: null
+  max_length: 512
+
+training:
+  trainer_type: hard_classification
+  batch_size: 8
+  learning_rate: 1.0e-4
+  epochs: 1
+
+data:
+  dataset_name: ""
+  result_model: ""
+  split_name: split_v1
+  hard_label_name: hard_llm_correct_rule_v1
+  soft_label_name: soft_llm_correct_v1
