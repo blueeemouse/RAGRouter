@@ -24,12 +24,15 @@
 
 ### 提取配置
 
-| 配置项 | 值 |
-|--------|-----|
-| 模型 | Llama-3.1-8B-AWQ-INT4 |
-| 层选择 | [8, 16, 24, 31] |
-| 存储精度 | float16（与模型运行时一致） |
-| System Prompt | QA_SYSTEM（LLMDirect 场景） |
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| 模型 | Llama-3.1-8B-AWQ-INT4 | 与在线服务一致 |
+| 层选择 | [8, 16, 24, 31] | 浅、中、深中、最后层 |
+| max_model_len | 8192 | 与在线服务一致 |
+| dtype | float16 | 与模型运行时一致 |
+| seed | 42 | 确保可复现 |
+| temperature | 0.0 | 贪婪解码 |
+| System Prompt | QA_SYSTEM | LLMDirect 场景 |
 
 ### 聚合策略
 

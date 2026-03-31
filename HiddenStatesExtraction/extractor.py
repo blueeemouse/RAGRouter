@@ -90,6 +90,7 @@ class HiddenStatesExtractor:
             dtype=HiddenStatesConfig.DTYPE,
             max_model_len=self.max_model_len,
             gpu_memory_utilization=self.gpu_memory_utilization,
+            seed=HiddenStatesConfig.SEED,  # Fixed seed for reproducibility
             speculative_config={
                 "method": "extract_hidden_states",
                 "num_speculative_tokens": 1,
@@ -159,7 +160,11 @@ class HiddenStatesExtractor:
             prompt = self.build_prompt(question)
 
             # Generate with max_tokens=1 (minimal generation for prefill)
-            sampling_params = SamplingParams(max_tokens=1)
+            # Set temperature=0 for greedy decoding (ensures reproducibility)
+            sampling_params = SamplingParams(
+                max_tokens=1,
+                temperature=HiddenStatesConfig.TEMPERATURE
+            )
             outputs = self.llm.generate([prompt], sampling_params)
 
             if not outputs:

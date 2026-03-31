@@ -32,9 +32,14 @@ class HiddenStatesConfig:
     DTYPE = "float16"
 
     # vLLM Engine Configuration
-    MAX_MODEL_LEN = 2048
+    # Must match online service settings for reproducibility
+    MAX_MODEL_LEN = 8192  # Same as online service (vllm serve --max-model-len 8192)
     GPU_MEMORY_UTILIZATION = 0.8
     TENSOR_PARALLEL_SIZE = 1
+
+    # Reproducibility Settings
+    SEED = 42  # Fixed seed for reproducibility
+    TEMPERATURE = 0.0  # Greedy decoding (doesn't affect hidden states, but ensures consistency)
 
     # Aggregation Methods
     # Save aggregated results to reduce storage
