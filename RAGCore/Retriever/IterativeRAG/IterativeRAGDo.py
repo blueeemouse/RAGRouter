@@ -17,6 +17,7 @@ from Config.LLMConfig import LLMConfig
 from Config.RetrieverConfig import RetrieverConfig
 from Config.PathConfig import PathConfig
 from RAGCore.Prompt.PromptTemplate import PromptTemplate
+from RAGCore.Utils.TokenTracker import TokenTracker
 
 
 class IterativeRAGProcessor:
@@ -74,7 +75,7 @@ class IterativeRAGProcessor:
         """Retrieve chunks using configured retriever"""
         return self.retriever.retrieve_chunks(query)
 
-    def generate_direct(self, question: str) -> str:
+    def generate_direct(self, question: str, tracker: TokenTracker = None) -> str:
         """Generate answer without context (Round 0)"""
         try:
             messages = PromptTemplate.get_qa_messages(question)
@@ -85,12 +86,14 @@ class IterativeRAGProcessor:
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+            if tracker:
+                tracker.track(response, phase="generation", function="generate_direct")
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Error generating direct answer: {e}")
             return "I cannot answer this question."
 
-    def generate_with_context(self, question: str, context: str) -> str:
+    def generate_with_context(self, question: str, context: str, tracker: TokenTracker = None) -> str:
         """Generate answer with retrieved context (Round 1+)"""
         try:
             messages = PromptTemplate.get_rag_messages(context, question)
@@ -101,12 +104,14 @@ class IterativeRAGProcessor:
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+            if tracker:
+                tracker.track(response, phase="generation", function="generate_with_context")
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Error generating answer with context: {e}")
             return "I cannot answer this question."
 
-    def evaluate_answer(self, question: str, answer: str, context: str = "None") -> Dict[str, Any]:
+    def evaluate_answer(self, question: str, answer: str, context: str = "None", tracker: TokenTracker = None) -> Dict[str, Any]:
         """Evaluate if answer is sufficient and generate sub_question if needed"""
         try:
             messages = PromptTemplate.get_iterative_eval_messages(question, answer, context)
@@ -117,6 +122,8 @@ class IterativeRAGProcessor:
                 max_tokens=300,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+            if tracker:
+                tracker.track(response, phase="retrieval", function="evaluate_answer")
             result_text = response.choices[0].message.content.strip()
 
             # Parse JSON response
@@ -130,7 +137,7 @@ class IterativeRAGProcessor:
             return {"sufficient": False, "reason": str(e), "sub_question": None}
 
     # Async LLM Methods for Parallel Processing
-    async def generate_direct_async(self, question: str) -> str:
+    async def generate_direct_async(self, question: str, tracker: TokenTracker = None) -> str:
         """Async: Generate answer without context (Round 0)"""
         try:
             messages = PromptTemplate.get_qa_messages(question)
@@ -141,12 +148,14 @@ class IterativeRAGProcessor:
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+            if tracker:
+                tracker.track(response, phase="generation", function="generate_direct_async")
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Error generating direct answer: {e}")
             return "I cannot answer this question."
 
-    async def generate_with_context_async(self, question: str, context: str) -> str:
+    async def generate_with_context_async(self, question: str, context: str, tracker: TokenTracker = None) -> str:
         """Async: Generate answer with retrieved context (Round 1+)"""
         try:
             messages = PromptTemplate.get_rag_messages(context, question)
@@ -157,12 +166,14 @@ class IterativeRAGProcessor:
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+            if tracker:
+                tracker.track(response, phase="generation", function="generate_with_context_async")
             return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Error generating answer with context: {e}")
             return "I cannot answer this question."
 
-    async def evaluate_answer_async(self, question: str, answer: str, context: str = "None") -> Dict[str, Any]:
+    async def evaluate_answer_async(self, question: str, answer: str, context: str = "None", tracker: TokenTracker = None) -> Dict[str, Any]:
         """Async: Evaluate if answer is sufficient and generate sub_question if needed"""
         try:
             messages = PromptTemplate.get_iterative_eval_messages(question, answer, context)
@@ -173,6 +184,8 @@ class IterativeRAGProcessor:
                 max_tokens=300,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+            if tracker:
+                tracker.track(response, phase="retrieval", function="evaluate_answer_async")
             result_text = response.choices[0].message.content.strip()
 
             # Parse JSON response
@@ -191,16 +204,17 @@ class IterativeRAGProcessor:
         Note: Iterative rounds within a question are still sequential,
         but multiple questions can be processed in parallel.
         """
+        tracker = TokenTracker()
         max_iterations = RetrieverConfig.ITERATIVE_MAX_ITERATIONS
         all_queries, all_chunks, history = [question], [], []
 
         # Round 0: Direct LLM answer
-        answer = await self.generate_direct_async(question)
-        eval_result = await self.evaluate_answer_async(question, answer)
+        answer = await self.generate_direct_async(question, tracker=tracker)
+        eval_result = await self.evaluate_answer_async(question, answer, tracker=tracker)
         history.append({"round": 0, "query": question, "answer": answer, "evaluation": eval_result, "new_chunks_count": 0})
 
         if eval_result.get("sufficient", False):
-            return {"final_answer": answer, "rounds": 0, "chunks": all_chunks, "history": history}
+            return {"final_answer": answer, "rounds": 0, "chunks": all_chunks, "history": history, "token_usage": tracker.to_dict(), "ctx_len": 0}
 
         current_query = eval_result.get("sub_question") or question
         if current_query and current_query not in all_queries:
@@ -217,21 +231,24 @@ class IterativeRAGProcessor:
             context = self.build_context(truncated_chunks)
 
             # LLM calls are async
-            answer = await self.generate_with_context_async(question, context)
-            eval_result = await self.evaluate_answer_async(question, answer, context[:2000])
+            answer = await self.generate_with_context_async(question, context, tracker=tracker)
+            eval_result = await self.evaluate_answer_async(question, answer, context[:2000], tracker=tracker)
             history.append({"round": iteration, "query": current_query, "answer": answer, "evaluation": eval_result, "new_chunks_count": len(added_chunks)})
 
             if eval_result.get("sufficient", False):
-                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history}
+                ctx_len = RetrieverConfig.estimate_tokens(context)
+                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
 
             sub_question = eval_result.get("sub_question")
             if not sub_question or sub_question in all_queries:
-                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history}
+                ctx_len = RetrieverConfig.estimate_tokens(context)
+                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
 
             all_queries.append(sub_question)
             current_query = sub_question
 
-        return {"final_answer": history[-1]["answer"], "rounds": max_iterations, "chunks": self.apply_token_budget(all_chunks), "history": history}
+        ctx_len = RetrieverConfig.estimate_tokens(context) if context else 0
+        return {"final_answer": history[-1]["answer"], "rounds": max_iterations, "chunks": self.apply_token_budget(all_chunks), "history": history, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
 
     def merge_chunks(self, existing_chunks: List[Dict], new_chunks: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
         """Merge new chunks with existing, deduplicating by (doc_id, chunk_idx)"""
@@ -258,16 +275,17 @@ class IterativeRAGProcessor:
 
     def process_single(self, question: str) -> Dict[str, Any]:
         """Process a single question using Iterative RAG"""
+        tracker = TokenTracker()
         max_iterations = RetrieverConfig.ITERATIVE_MAX_ITERATIONS
         all_queries, all_chunks, history = [question], [], []
 
         # Round 0: Direct LLM answer
-        answer = self.generate_direct(question)
-        eval_result = self.evaluate_answer(question, answer)
+        answer = self.generate_direct(question, tracker=tracker)
+        eval_result = self.evaluate_answer(question, answer, tracker=tracker)
         history.append({"round": 0, "query": question, "answer": answer, "evaluation": eval_result, "new_chunks_count": 0})
 
         if eval_result.get("sufficient", False):
-            return {"final_answer": answer, "rounds": 0, "chunks": all_chunks, "history": history}
+            return {"final_answer": answer, "rounds": 0, "chunks": all_chunks, "history": history, "token_usage": tracker.to_dict(), "ctx_len": 0}
 
         current_query = eval_result.get("sub_question") or question
         if current_query and current_query not in all_queries:
@@ -282,21 +300,24 @@ class IterativeRAGProcessor:
             truncated_chunks = self.apply_token_budget(all_chunks)
             context = self.build_context(truncated_chunks)
 
-            answer = self.generate_with_context(question, context)
-            eval_result = self.evaluate_answer(question, answer, context[:2000])
+            answer = self.generate_with_context(question, context, tracker=tracker)
+            eval_result = self.evaluate_answer(question, answer, context[:2000], tracker=tracker)
             history.append({"round": iteration, "query": current_query, "answer": answer, "evaluation": eval_result, "new_chunks_count": len(added_chunks)})
 
             if eval_result.get("sufficient", False):
-                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history}
+                ctx_len = RetrieverConfig.estimate_tokens(context)
+                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
 
             sub_question = eval_result.get("sub_question")
             if not sub_question or sub_question in all_queries:
-                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history}
+                ctx_len = RetrieverConfig.estimate_tokens(context)
+                return {"final_answer": answer, "rounds": iteration, "chunks": truncated_chunks, "history": history, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
 
             all_queries.append(sub_question)
             current_query = sub_question
 
-        return {"final_answer": history[-1]["answer"], "rounds": max_iterations, "chunks": self.apply_token_budget(all_chunks), "history": history}
+        ctx_len = RetrieverConfig.estimate_tokens(context) if context else 0
+        return {"final_answer": history[-1]["answer"], "rounds": max_iterations, "chunks": self.apply_token_budget(all_chunks), "history": history, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
 
     def process(self, dataset_name: str, resume: bool = True) -> List[Dict[str, Any]]:
         """Process all questions in the dataset"""
@@ -326,7 +347,7 @@ class IterativeRAGProcessor:
                 continue
 
             result = self.process_single(question)
-            answer_result = {"id": q_id, "rag_answer": result["final_answer"], "rounds": result["rounds"]}
+            answer_result = {"id": q_id, "rag_answer": result["final_answer"], "rounds": result["rounds"], "token_usage": result["token_usage"], "ctx_len": result["ctx_len"]}
             results.append(answer_result)
             processed_ids.add(q_id)
 
@@ -433,7 +454,9 @@ class IterativeRAGProcessor:
                 answer_result = {
                     "id": q_id,
                     "rag_answer": result["final_answer"],
-                    "rounds": result["rounds"]
+                    "rounds": result["rounds"],
+                    "token_usage": result["token_usage"],
+                    "ctx_len": result["ctx_len"]
                 }
                 results.append(answer_result)
                 processed_ids.add(q_id)

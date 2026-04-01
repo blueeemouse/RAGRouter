@@ -20,6 +20,7 @@ from Config.RetrieverConfig import RetrieverConfig
 from Config.PathConfig import PathConfig
 from RAGCore.Prompt.PromptTemplate import PromptTemplate
 from RAGCore.Embedding.EmbeddingDo import EmbeddingProcessor
+from RAGCore.Utils.TokenTracker import TokenTracker
 
 
 class NaiveRAGProcessor:
@@ -188,12 +189,13 @@ class NaiveRAGProcessor:
 
         return RetrieverConfig.CHUNK_SEPARATOR.join(context_parts)
 
-    def answer_with_context(self, question: str, context: str) -> str:
+    def answer_with_context(self, question: str, context: str, tracker: TokenTracker = None) -> str:
         """Generate answer using LLM with retrieved context
 
         Args:
             question: The question text
             context: Retrieved context
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -210,18 +212,22 @@ class NaiveRAGProcessor:
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
 
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_with_context")
+
             return response.choices[0].message.content.strip()
 
         except Exception as e:
             print(f"Error generating answer: {e}")
             return None
 
-    async def answer_with_context_async(self, question: str, context: str) -> Optional[str]:
+    async def answer_with_context_async(self, question: str, context: str, tracker: TokenTracker = None) -> Optional[str]:
         """Async version: Generate answer using LLM with retrieved context
 
         Args:
             question: The question text
             context: Retrieved context
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -236,6 +242,9 @@ class NaiveRAGProcessor:
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_with_context_async")
 
             return response.choices[0].message.content.strip()
 
@@ -305,11 +314,13 @@ class NaiveRAGProcessor:
             context = self.build_context(retrieved_chunks)
 
             # Step 3: Generate answer with LLM
-            answer = self.answer_with_context(question, context)
+            tracker = TokenTracker()
+            answer = self.answer_with_context(question, context, tracker=tracker)
+            ctx_len = RetrieverConfig.estimate_tokens(context)
 
             if answer is not None:
                 # Prepare answer result
-                result = {"id": q_id, "rag_answer": answer}
+                result = {"id": q_id, "rag_answer": answer, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
                 results.append(result)
                 processed_ids.add(q_id)
 
@@ -322,7 +333,7 @@ class NaiveRAGProcessor:
                     NaiveRAGSaver.save_retrieval(retrieval_result, self.model_name, dataset_name)
             else:
                 # Record failure
-                error_result = {"id": q_id, "rag_answer": None}
+                error_result = {"id": q_id, "rag_answer": None, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
                 results.append(error_result)
 
                 if resume:
@@ -409,22 +420,19 @@ class NaiveRAGProcessor:
 
                 # Step 2: Build context
                 context = self.build_context(retrieved_chunks)
+                ctx_len = RetrieverConfig.estimate_tokens(context)
 
                 # Step 3: Generate answer with LLM (async)
-                answer = await self.answer_with_context_async(question, context)
+                tracker = TokenTracker()
+                answer = await self.answer_with_context_async(question, context, tracker=tracker)
 
-                if answer is not None:
-                    return {
-                        "id": q_id,
-                        "rag_answer": answer,
-                        "chunks": retrieved_chunks
-                    }
-                else:
-                    return {
-                        "id": q_id,
-                        "rag_answer": None,
-                        "chunks": retrieved_chunks
-                    }
+                return {
+                    "id": q_id,
+                    "rag_answer": answer,
+                    "chunks": retrieved_chunks,
+                    "token_usage": tracker.to_dict(),
+                    "ctx_len": ctx_len
+                }
 
         # Create all tasks
         tasks = [
@@ -441,7 +449,7 @@ class NaiveRAGProcessor:
 
             if result:
                 q_id = result["id"]
-                answer_result = {"id": q_id, "rag_answer": result["rag_answer"]}
+                answer_result = {"id": q_id, "rag_answer": result["rag_answer"], "token_usage": result["token_usage"], "ctx_len": result["ctx_len"]}
                 results.append(answer_result)
                 processed_ids.add(q_id)
 
