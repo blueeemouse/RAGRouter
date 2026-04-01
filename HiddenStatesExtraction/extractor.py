@@ -184,7 +184,24 @@ class HiddenStatesExtractor:
                 token_ids = f.get_tensor("token_ids")
                 hidden_states = f.get_tensor("hidden_states")
 
-            # hidden_states shape: [num_layers, seq_len, hidden_size]
+            # Determine the correct shape based on dimensions
+            # vLLM returns: [prompt_len, num_hidden_layers, hidden_size]
+            # We need: [num_hidden_layers, prompt_len, hidden_size]
+            if hidden_states.shape[0] == len(self.layer_ids):
+                # Shape is [num_layers, seq_len, hidden_size] - expected
+                num_layers, seq_len, hidden_size = hidden_states.shape
+            elif hidden_states.shape[1] == len(self.layer_ids):
+                # Shape is [seq_len, num_layers, hidden_size] - need to transpose
+                hidden_states = hidden_states.permute(1, 0, 2)  # -> [num_layers, seq_len, hidden_size]
+                num_layers, seq_len, hidden_size = hidden_states.shape
+            else:
+                # Fallback: assume first dim is smaller one
+                if hidden_states.shape[0] < hidden_states.shape[1]:
+                    num_layers, seq_len, hidden_size = hidden_states.shape
+                else:
+                    hidden_states = hidden_states.permute(1, 0, 2)
+                    num_layers, seq_len, hidden_size = hidden_states.shape
+
             # Aggregate to reduce storage
 
             # Mean pooling over all tokens
@@ -194,7 +211,6 @@ class HiddenStatesExtractor:
             last_hidden = hidden_states[:, -1, :]  # [num_layers, hidden_size]
 
             # Last 5 tokens mean (or all if seq_len < 5)
-            seq_len = hidden_states.shape[1]
             last_k = min(5, seq_len)
             last_5_mean = hidden_states[:, -last_k:, :].mean(dim=1)  # [num_layers, hidden_size]
 
@@ -250,12 +266,12 @@ class HiddenStatesExtractor:
             result: HiddenStatesResult to save
             output_path: Path to save the .safetensors file
         """
-        # Convert to float16 for storage efficiency
+        # Convert to float16 and ensure contiguous memory for storage efficiency
         tensors = {
-            "token_ids": result.token_ids.to(torch.int64),
-            "mean_hidden": result.mean_hidden.to(torch.float16),
-            "last_hidden": result.last_hidden.to(torch.float16),
-            "last_5_mean": result.last_5_mean.to(torch.float16),
+            "token_ids": result.token_ids.to(torch.int64).contiguous(),
+            "mean_hidden": result.mean_hidden.to(torch.float16).contiguous(),
+            "last_hidden": result.last_hidden.to(torch.float16).contiguous(),
+            "last_5_mean": result.last_5_mean.to(torch.float16).contiguous(),
         }
 
         save_file(tensors, output_path)
