@@ -43,14 +43,15 @@ class ResultEvaluator:
     def _setup_llm_client(self):
         """Setup LLM client for evaluation (sync and async)"""
         # 评估专用 LLM: Llama 3.1 70B AWQ-INT4 (独立于 LLMConfig，避免影响 retrieve 阶段)
+        # 端口 8002，独立于提取三元组的 8000 端口，两者可以同时运行
         self.model_name = "hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4"
         self.llm_client = OpenAI(
             api_key="not-needed",
-            base_url="http://localhost:8000/v1"
+            base_url="http://localhost:8002/v1"
         )
         self.async_llm_client = AsyncOpenAI(
             api_key="not-needed",
-            base_url="http://localhost:8000/v1"
+            base_url="http://localhost:8002/v1"
         )
         print(f"Initialized Evaluator LLM: {self.model_name}")
         # 原代码: 从 LLMConfig 读取配置
