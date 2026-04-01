@@ -124,7 +124,7 @@ class ResultEvaluator:
                 if line.strip():
                     record = json.loads(line)
                     # Handle different answer field names
-                    answer = record.get('rag_answer') or record.get('answer') or record.get('final_answer', '')
+                    answer = record.get('rag_answer') or record.get('answer') or record.get('llm_answer') or record.get('final_answer', '')
                     answers[record['id']] = answer
 
         return answers

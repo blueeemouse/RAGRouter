@@ -248,7 +248,7 @@ def cmd_evaluate_result(args):
     from Config.PathConfig import PathConfig
 
     model_config = LLMConfig.get_model_config()
-    model_name = model_config["model"]
+    model_name = model_config.get("model_name", model_config["model"])
 
     # Get retriever_type for iterative_rag
     retriever_type = getattr(args, 'retriever_type', 'graph')
