@@ -958,7 +958,9 @@ class ResultEvaluator:
         EvaluationSaver.save(results, model_name, dataset_name, method, retriever_type)
 
         # Print summary
-        self._print_evaluation_summary(results)
+        self._print_evaluation_summary(results, model_name=model_name,
+                                       dataset_name=dataset_name, method=method,
+                                       retriever_type=retriever_type)
 
         return results
 
@@ -1002,8 +1004,10 @@ class ResultEvaluator:
 
         return results
 
-    def _print_evaluation_summary(self, results: List[Dict[str, Any]]):
-        """Print summary statistics for evaluation results"""
+    def _print_evaluation_summary(self, results: List[Dict[str, Any]],
+                                   model_name: str = "", dataset_name: str = "",
+                                   method: str = "", retriever_type: str = None):
+        """Print summary statistics for evaluation results and append to summary.json"""
         if not results:
             return
 
@@ -1043,6 +1047,66 @@ class ResultEvaluator:
             print(f"  Incorrect:  {incorrect}/{len(labels)} ({incorrect/len(labels)*100:.1f}%)")
             print(f"  Incomplete: {incomplete}/{len(labels)} ({incomplete/len(labels)*100:.1f}%)")
         print("=" * 60)
+
+        # Append summary to summary.json
+        if model_name and dataset_name and method:
+            self._save_summary(model_name, dataset_name, method, retriever_type,
+                               total, avg_f1, avg_cov, avg_faith_hard, avg_faith_soft,
+                               correct, incorrect, incomplete, len(labels))
+
+    def _save_summary(self, model_name: str, dataset_name: str, method: str,
+                      retriever_type: str, total: int,
+                      semantic_f1: float, coverage: float,
+                      faithfulness_hard: float, faithfulness_soft: float,
+                      correct: int, incorrect: int, incomplete: int,
+                      labeled_count: int):
+        """Append evaluation summary to summary.json"""
+        summary_path = os.path.join(PathConfig.RESULT_EVAL_DIR, "summary.json")
+        os.makedirs(os.path.dirname(summary_path), exist_ok=True)
+
+        # Build the method key (e.g., "iterative_rag_naive")
+        method_key = method
+        if method == "iterative_rag" and retriever_type:
+            method_key = f"{method}_{retriever_type}"
+
+        entry = {
+            "model": model_name,
+            "dataset": dataset_name,
+            "method": method_key,
+            "total": total,
+            "semantic_f1": round(semantic_f1, 4),
+            "coverage": round(coverage, 4),
+            "faithfulness_hard": round(faithfulness_hard, 4),
+            "faithfulness_soft": round(faithfulness_soft, 4),
+            "llm_label": {
+                "correct": correct,
+                "incorrect": incorrect,
+                "incomplete": incomplete
+            } if labeled_count > 0 else None
+        }
+
+        # Load existing summaries
+        summaries = []
+        if os.path.exists(summary_path):
+            with open(summary_path, 'r', encoding='utf-8') as f:
+                summaries = json.load(f)
+
+        # Update or append: if same (model, dataset, method) exists, replace it
+        replaced = False
+        for i, s in enumerate(summaries):
+            if (s.get("model") == model_name and
+                s.get("dataset") == dataset_name and
+                s.get("method") == method_key):
+                summaries[i] = entry
+                replaced = True
+                break
+        if not replaced:
+            summaries.append(entry)
+
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            json.dump(summaries, f, ensure_ascii=False, indent=2)
+
+        print(f"\nSummary saved to: {summary_path}")
 
 
 if __name__ == "__main__":
