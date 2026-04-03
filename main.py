@@ -64,18 +64,22 @@ def cmd_process_graph(args):
 
     print(f"[Process] Building knowledge graph for dataset: {args.dataset}")
 
-    # Step 1: Chunking
-    chunk_processor = ChunkProcessor()
-    corpus_path = PathConfig.get_corpus_path(args.dataset)
-    corpus = chunk_processor.load_corpus(corpus_path)
-    chunks_by_doc = chunk_processor.process_corpus(corpus)
+    # Step 1: Chunking (skip if only building graph from existing triplets)
+    if args.skip_extraction:
+        chunks_by_doc = None
+    else:
+        chunk_processor = ChunkProcessor()
+        corpus_path = PathConfig.get_corpus_path(args.dataset)
+        corpus = chunk_processor.load_corpus(corpus_path)
+        chunks_by_doc = chunk_processor.process_corpus(corpus)
 
     # Step 2: Build graph
     graph_processor = GraphProcessor()
     graph_result = graph_processor.process(
         chunks_by_doc,
         dataset_name=args.dataset,
-        resume=not args.no_resume
+        resume=not args.no_resume,
+        skip_extraction=args.skip_extraction
     )
 
     # Step 3: Save graph
@@ -405,6 +409,7 @@ Examples:
     p_graph = process_sub.add_parser("graph", help="Build knowledge graph")
     p_graph.add_argument("--dataset", type=str, required=True, help="Dataset name")
     p_graph.add_argument("--no-resume", action="store_true", help="Don't resume from existing")
+    p_graph.add_argument("--skip-extraction", action="store_true", help="Skip extraction, build graph from existing triplets only")
 
     # process all
     p_all = process_sub.add_parser("all", help="Run all preprocessing")

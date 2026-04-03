@@ -330,13 +330,14 @@ class GraphProcessor:
 
         return embeddings
 
-    def process(self, chunks_by_doc: Dict[int, List[str]], dataset_name: str = None, resume: bool = True) -> Dict[str, Any]:
+    def process(self, chunks_by_doc: Dict[int, List[str]], dataset_name: str = None, resume: bool = True, skip_extraction: bool = False) -> Dict[str, Any]:
         """Complete pipeline: extract triplets and build graph
 
         Args:
-            chunks_by_doc: {doc_id: [chunk1, chunk2, ...]}
+            chunks_by_doc: {doc_id: [chunk1, chunk2, ...]} (not needed if skip_extraction=True)
             dataset_name: Name of dataset (for incremental save and resume)
             resume: If True, skip already processed documents
+            skip_extraction: If True, skip extraction and retry, build graph from existing triplets only
 
         Returns:
             {
@@ -345,42 +346,52 @@ class GraphProcessor:
                 "graph": NetworkX graph object
             }
         """
-        # Load existing progress if resume is enabled
-        if resume and dataset_name:
+        if skip_extraction:
+            # Skip extraction and retry, build graph from existing triplets only
             from RAGCore.Graph.GraphSave import GraphSaver
+            if not dataset_name:
+                raise ValueError("dataset_name is required when skip_extraction=True")
             triplets_by_doc = GraphSaver.load_existing_triplets(dataset_name)
-
-            if triplets_by_doc:
-                print(f"Resuming from checkpoint: {len(triplets_by_doc)} documents already processed")
+            if not triplets_by_doc:
+                raise ValueError(f"No existing triplets found for dataset '{dataset_name}'. Run without --skip-extraction first.")
+            print(f"Skipping extraction, using {len(triplets_by_doc)} documents' existing triplets")
         else:
-            triplets_by_doc = {}
+            # Normal flow: load existing progress if resume is enabled
+            if resume and dataset_name:
+                from RAGCore.Graph.GraphSave import GraphSaver
+                triplets_by_doc = GraphSaver.load_existing_triplets(dataset_name)
 
-        # Extract triplets with incremental save
-        # (the incremental version only uses the async version of extract_triplets func)
-        print("Extracting triplets...")
-        triplets_by_doc = self.extract_triplets_incremental(chunks_by_doc, dataset_name, triplets_by_doc)
+                if triplets_by_doc:
+                    print(f"Resuming from checkpoint: {len(triplets_by_doc)} documents already processed")
+            else:
+                triplets_by_doc = {}
 
-        # Retry failed chunks before building graph
-        if dataset_name:
-            from RAGCore.Graph.GraphSave import GraphSaver
-            failed_chunks = GraphSaver.load_failed_chunks(dataset_name)
+            # Extract triplets with incremental save
+            # (the incremental version only uses the async version of extract_triplets func)
+            print("Extracting triplets...")
+            triplets_by_doc = self.extract_triplets_incremental(chunks_by_doc, dataset_name, triplets_by_doc)
 
-            if failed_chunks:
-                print(f"\n{'='*60}")
-                print(f"Retrying {len(failed_chunks)} failed chunks...")
-                print(f"{'='*60}")
+            # Retry failed chunks before building graph
+            if dataset_name:
+                from RAGCore.Graph.GraphSave import GraphSaver
+                failed_chunks = GraphSaver.load_failed_chunks(dataset_name)
 
-                triplets_by_doc, still_failed_chunks = self.retry_failed_chunks(failed_chunks, dataset_name, triplets_by_doc)
+                if failed_chunks:
+                    print(f"\n{'='*60}")
+                    print(f"Retrying {len(failed_chunks)} failed chunks...")
+                    print(f"{'='*60}")
 
-                if still_failed_chunks:
-                    failed_chunks_path = os.path.join(
-                        PathConfig.get_triplet_path(dataset_name),
-                        "failed_chunks.json"
-                    )
-                    raise RuntimeError(
-                        f"Triplet extraction still has {len(still_failed_chunks)} failed chunks after retry. "
-                        f"See {failed_chunks_path} and resolve them before building the graph."
-                    )
+                    triplets_by_doc, still_failed_chunks = self.retry_failed_chunks(failed_chunks, dataset_name, triplets_by_doc)
+
+                    if still_failed_chunks:
+                        failed_chunks_path = os.path.join(
+                            PathConfig.get_triplet_path(dataset_name),
+                            "failed_chunks.json"
+                        )
+                        raise RuntimeError(
+                            f"Triplet extraction still has {len(still_failed_chunks)} failed chunks after retry. "
+                            f"See {failed_chunks_path} and resolve them before building the graph."
+                        )
 
         # Build graph (entities are derived from triplets inside build_graph)
         print("Building knowledge graph...")
