@@ -11,13 +11,16 @@ from RouterCore.Data.DatasetSchema import validate_sample_id
 from RouterCore.RouterPathConfig import RouterPathConfig
 
 
-class RouterHardLabelDataset(Dataset):
-    """Dataset for hard-label router training.
+class RouterHardLabelTextDataset(Dataset):
+    """Text-based hard-label router dataset.
 
-    First-stage minimal sample schema:
+    Current first-stage minimal sample schema:
     - id
     - question
     - label_index
+
+    This class should be treated as the text pipeline v1 dataset rather than the
+    final universal router dataset abstraction.
     """
 
     def __init__(
@@ -116,3 +119,7 @@ class RouterHardLabelDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.samples[idx]
+
+
+# Backward-compatible alias kept only during the migration transition.
+RouterHardLabelDataset = RouterHardLabelTextDataset
