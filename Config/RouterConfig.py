@@ -11,9 +11,12 @@ from RouterCore.Data.DatasetSchema import STRATEGY_NAMES
 
 @dataclass
 class RouterModelConfig:
-    model_type: str = "placeholder"
-    backbone_name: Optional[str] = None
+    model_type: str = "text_router"
+    backbone_name: Optional[str] = "sentence-transformers/all-MiniLM-L6-v2"
     max_length: int = 512
+    pooling_type: str = "mean"
+    dropout: float = 0.1
+    freeze_backbone: bool = False
     strategy_names: List[str] = field(default_factory=lambda: STRATEGY_NAMES.copy())
 
 

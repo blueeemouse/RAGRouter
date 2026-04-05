@@ -6,9 +6,15 @@ Concrete model implementations will be added incrementally.
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
+import torch.nn as nn
 
-class BaseRouterModel(ABC):
+
+class BaseRouterModel(nn.Module, ABC):
     """Abstract base class for router models.
+
+    Router model class names should primarily express model structure / input
+    modality (for example text / feature / hybrid), while concrete backbone
+    choices should usually live in config rather than in the class name.
 
     Router models should consume a dict-based batch payload rather than custom
     positional argument signatures. The batch protocol is unified at a high
@@ -30,7 +36,11 @@ class BaseRouterModel(ABC):
     - accept `forward(batch)`
     - read only the fields needed by the concrete model
     - do not assume every batch always contains every modality field
+    - return at least a dict containing task-relevant outputs (e.g. `logits`)
     """
+
+    def __init__(self):
+        super().__init__()
 
     @abstractmethod
     def forward(self, batch: Dict[str, Any]):
