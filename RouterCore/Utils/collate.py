@@ -42,10 +42,6 @@ class RouterBatchCollator:
             raise ValueError("RouterBatchCollator requires at least one enabled input modality")
         if self.use_text and self.tokenizer is None:
             raise ValueError("RouterBatchCollator requires a tokenizer when use_text=True")
-        if self.use_features:
-            raise NotImplementedError(
-                "Feature collation is reserved for a later hidden-states integration step"
-            )
 
     def __call__(self, batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not batch:
@@ -72,6 +68,16 @@ class RouterBatchCollator:
             collated["attention_mask"] = tokenized["attention_mask"]
             if self.return_questions:
                 collated["questions"] = questions
+
+        if self.use_features:
+            features = [sample["features"] for sample in batch]
+            try:
+                collated["features"] = torch.stack(features, dim=0)
+            except RuntimeError:
+                print("[Feature Collate Debug] feature shapes in current batch:")
+                for sample, feature in zip(batch, features):
+                    print(f"  id={sample['id']} shape={tuple(feature.shape)}")
+                raise
 
         return collated
 

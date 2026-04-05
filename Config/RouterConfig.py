@@ -19,6 +19,14 @@ class RouterModelConfig:
     freeze_backbone: bool = False
     strategy_names: List[str] = field(default_factory=lambda: STRATEGY_NAMES.copy())
 
+    hidden_state_feature_name: str = "mean_hidden"
+    feature_pooling_type: str = "layer_mean"
+    hidden_state_hidden_size: int = 4096
+    num_hidden_layers_used: int = 4
+    feature_hidden_dim: int = 2048
+    feature_mlp_hidden_dim: int = 1024
+    feature_projection_dim: int = 256
+
 
 @dataclass
 class RouterTrainingConfig:
