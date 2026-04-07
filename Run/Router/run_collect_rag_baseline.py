@@ -95,6 +95,10 @@ def compute_oracle_metrics(samples: List[Dict[str, Any]], strategies: List[str])
     best_per_query = []
     strategy_distribution = defaultdict(int)
 
+    # Metrics to compute for oracle
+    oracle_metric_keys = ["llm_judge_correct", "semantic_f1", "coverage", "faithfulness_hard", "faithfulness_soft"]
+    metric_accumulators = {key: [] for key in oracle_metric_keys}
+
     for sample in samples:
         best_strategy = None
         best_semantic_f1 = float("-inf")
@@ -113,28 +117,27 @@ def compute_oracle_metrics(samples: List[Dict[str, Any]], strategies: List[str])
             continue
 
         strategy_distribution[best_strategy] += 1
-        best_per_query.append(
-            {
-                "id": sample["id"],
-                "best_strategy": best_strategy,
-                "best_semantic_f1": best_semantic_f1,
-                "best_llm_correct": best_metrics.get("llm_judge_correct"),
-            }
-        )
+        record = {
+            "id": sample["id"],
+            "best_strategy": best_strategy,
+            "best_semantic_f1": best_semantic_f1,
+        }
+        for key in oracle_metric_keys:
+            val = best_metrics.get(key)
+            record[f"best_{key}"] = val
+            if val is not None:
+                metric_accumulators[key].append(val)
+        best_per_query.append(record)
 
     oracle_metrics = {}
-    if best_per_query:
-        oracle_metrics["semantic_f1"] = {
-            "mean": sum(x["best_semantic_f1"] for x in best_per_query) / len(best_per_query),
-            "count": len(best_per_query),
-        }
-        llm_correct_values = [x["best_llm_correct"] for x in best_per_query if x["best_llm_correct"] is not None]
-        if llm_correct_values:
-            oracle_metrics["llm_judge_correct"] = {
-                "mean": sum(llm_correct_values) / len(llm_correct_values),
-                "count": len(llm_correct_values),
+    for key, values in metric_accumulators.items():
+        if values:
+            oracle_metrics[key] = {
+                "mean": sum(values) / len(values),
+                "count": len(values),
             }
-        oracle_metrics["strategy_distribution"] = dict(strategy_distribution)
+    oracle_metrics["strategy_distribution"] = dict(strategy_distribution)
+    oracle_metrics["priority_order"] = strategies  # Record the priority order used for tie-breaking
 
     return {
         "oracle_metrics": oracle_metrics,
