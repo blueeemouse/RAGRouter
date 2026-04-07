@@ -1,6 +1,7 @@
 import os
 import json
 import pickle
+import tempfile
 import networkx as nx
 from typing import Dict, List, Tuple, Any
 from Config.PathConfig import PathConfig
@@ -8,6 +9,23 @@ from Config.PathConfig import PathConfig
 
 class GraphSaver:
     """Save graph data including triplets and graph object (entities are derived from triplets)"""
+
+    @staticmethod
+    def _atomic_write_json(path: str, data: Any):
+        """Write JSON file atomically: write to temp file first, then rename.
+
+        If the process is interrupted mid-write, the original file remains intact.
+        """
+        dir_path = os.path.dirname(path)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
 
     @staticmethod
     def save_incremental_triplets(doc_id: int, triplets: List[Tuple[str, str, str]], dataset_name: str):
@@ -41,8 +59,9 @@ class GraphSaver:
                 triplet_resource[key].append({"doc_id": doc_id})
 
         # Save back
-        with open(resource_path, 'w', encoding='utf-8') as f:
-            json.dump(triplet_resource, f, ensure_ascii=False, indent=2)
+        # with open(resource_path, 'w', encoding='utf-8') as f:
+        #     json.dump(triplet_resource, f, ensure_ascii=False, indent=2)
+        GraphSaver._atomic_write_json(resource_path, triplet_resource)
 
     @staticmethod
     def save_batch_triplets(triplets_by_doc_batch: Dict[int, List[Any]], dataset_name: str):
@@ -90,8 +109,9 @@ class GraphSaver:
                     triplet_resource[key].append(source_info)
 
         # Save back
-        with open(resource_path, 'w', encoding='utf-8') as f:
-            json.dump(triplet_resource, f, ensure_ascii=False, indent=2)
+        # with open(resource_path, 'w', encoding='utf-8') as f:
+        #     json.dump(triplet_resource, f, ensure_ascii=False, indent=2)
+        GraphSaver._atomic_write_json(resource_path, triplet_resource)
 
     @staticmethod
     def load_existing_triplets(dataset_name: str) -> Dict[int, List[Any]]:
@@ -167,8 +187,9 @@ class GraphSaver:
         })
 
         # Save back
-        with open(failed_chunks_path, 'w', encoding='utf-8') as f:
-            json.dump(failed_chunks, f, ensure_ascii=False, indent=2)
+        # with open(failed_chunks_path, 'w', encoding='utf-8') as f:
+        #     json.dump(failed_chunks, f, ensure_ascii=False, indent=2)
+        GraphSaver._atomic_write_json(failed_chunks_path, failed_chunks)
 
     @staticmethod
     def save_failed_chunks(failed_chunks: List[Dict[str, Any]], dataset_name: str):
@@ -187,8 +208,9 @@ class GraphSaver:
                 os.remove(failed_chunks_path)
             return
 
-        with open(failed_chunks_path, 'w', encoding='utf-8') as f:
-            json.dump(failed_chunks, f, ensure_ascii=False, indent=2)
+        # with open(failed_chunks_path, 'w', encoding='utf-8') as f:
+        #     json.dump(failed_chunks, f, ensure_ascii=False, indent=2)
+        GraphSaver._atomic_write_json(failed_chunks_path, failed_chunks)
 
     @staticmethod
     def load_failed_chunks(dataset_name: str) -> List[Dict[str, Any]]:
