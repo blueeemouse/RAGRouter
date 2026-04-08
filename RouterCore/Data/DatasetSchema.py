@@ -33,23 +33,43 @@ def normalize_strategy_name(method: str, retriever_type: str | None = None) -> s
 
 
 def validate_strategy_names(strategy_names: List[str]) -> None:
-    """Validate that a strategy list matches the agreed first-stage strategy space."""
-    if strategy_names != STRATEGY_NAMES:
-        raise ValueError(f"Strategy names must match first-stage strategy space: {STRATEGY_NAMES}")
+    """Validate strategy names as a non-empty, unique list of strings."""
+    if not isinstance(strategy_names, list) or not strategy_names:
+        raise ValueError("Strategy names must be a non-empty list")
+    if any(not isinstance(name, str) or not name.strip() for name in strategy_names):
+        raise ValueError("Each strategy name must be a non-empty string")
+    if len(set(strategy_names)) != len(strategy_names):
+        raise ValueError(f"Strategy names contain duplicates: {strategy_names}")
 
 
 def get_strategy_index(strategy_name: str) -> int:
-    """Return the integer class index for a normalized strategy name."""
+    """Return the integer class index for a normalized strategy name in default v1 space."""
     if strategy_name not in STRATEGY_TO_INDEX:
         raise ValueError(f"Unknown strategy name: {strategy_name}")
     return STRATEGY_TO_INDEX[strategy_name]
 
 
 def get_strategy_name(index: int) -> str:
-    """Return the normalized strategy name for a class index."""
+    """Return the normalized strategy name for a class index in default v1 space."""
     if index not in INDEX_TO_STRATEGY:
         raise ValueError(f"Unknown strategy index: {index}")
     return INDEX_TO_STRATEGY[index]
+
+
+def get_strategy_index_from_list(strategy_name: str, strategies: List[str]) -> int:
+    """Return class index using a caller-provided strategy list."""
+    validate_strategy_names(strategies)
+    if strategy_name not in strategies:
+        raise ValueError(f"Unknown strategy name: {strategy_name}")
+    return strategies.index(strategy_name)
+
+
+def get_strategy_name_from_list(index: int, strategies: List[str]) -> str:
+    """Return strategy name using a caller-provided strategy list."""
+    validate_strategy_names(strategies)
+    if index < 0 or index >= len(strategies):
+        raise ValueError(f"Unknown strategy index: {index}")
+    return strategies[index]
 
 
 def validate_sample_id(sample_id: str) -> None:

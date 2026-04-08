@@ -145,10 +145,16 @@ def compute_oracle_metrics(samples: List[Dict[str, Any]], strategies: List[str])
     }
 
 
-def compute_router_metrics_from_predictions(predictions: List[Dict[str, Any]], sample_lookup: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def compute_router_metrics_from_predictions(
+    predictions: List[Dict[str, Any]],
+    sample_lookup: Dict[str, Dict[str, Any]],
+    abstain_strategy: str = "all_failed",
+) -> Dict[str, Any]:
     """Compute routed average metrics from per-query prediction records."""
     metric_values = {key: [] for key in METRIC_KEYS}
+    non_abstain_metric_values = {key: [] for key in METRIC_KEYS}
     routed_records = []
+    abstain_count = 0
 
     for record in predictions:
         sample_id = record["id"]
@@ -156,16 +162,34 @@ def compute_router_metrics_from_predictions(predictions: List[Dict[str, Any]], s
         sample = sample_lookup.get(sample_id)
         if sample is None:
             continue
-        metrics = sample.get("method_metrics", {}).get(predicted_strategy, {})
+
+        is_abstain = predicted_strategy == abstain_strategy
         routed_record = {
             "id": sample_id,
             "predicted_strategy": predicted_strategy,
+            "is_abstain": is_abstain,
+            "action": "abstain" if is_abstain else "route",
         }
+
+        if is_abstain:
+            abstain_count += 1
+            routed_record["llm_judge_correct"] = 0.0
+            routed_record["semantic_f1"] = 0.0
+            metric_values["llm_judge_correct"].append(0.0)
+            metric_values["semantic_f1"].append(0.0)
+            routed_record["coverage"] = None
+            routed_record["faithfulness_hard"] = None
+            routed_record["faithfulness_soft"] = None
+            routed_records.append(routed_record)
+            continue
+
+        metrics = sample.get("method_metrics", {}).get(predicted_strategy, {})
         for key in METRIC_KEYS:
             value = metrics.get(key)
             routed_record[key] = value
             if value is not None:
                 metric_values[key].append(value)
+                non_abstain_metric_values[key].append(value)
         routed_records.append(routed_record)
 
     router_metrics = {}
@@ -176,9 +200,25 @@ def compute_router_metrics_from_predictions(predictions: List[Dict[str, Any]], s
                 "count": len(values),
             }
 
+    non_abstain_router_metrics = {}
+    for key, values in non_abstain_metric_values.items():
+        if values:
+            non_abstain_router_metrics[key] = {
+                "mean": sum(values) / len(values),
+                "count": len(values),
+            }
+
+    total_predictions = len(routed_records)
+    abstain_rate = (abstain_count / total_predictions) if total_predictions > 0 else 0.0
+
     return {
         "router_metrics": router_metrics,
+        "router_metrics_non_abstain": non_abstain_router_metrics,
         "routed_records": routed_records,
+        "abstain_count": abstain_count,
+        "abstain_rate": abstain_rate,
+        "num_routed": total_predictions - abstain_count,
+        "num_total": total_predictions,
     }
 
 
@@ -246,6 +286,11 @@ def main():
                     "test_size": len(test_samples),
                 },
                 "router_performance": router["router_metrics"],
+                "router_performance_non_abstain": router["router_metrics_non_abstain"],
+                "abstain_count": router["abstain_count"],
+                "abstain_rate": router["abstain_rate"],
+                "num_routed": router["num_routed"],
+                "num_total": router["num_total"],
                 "per_query_routed": router["routed_records"],
             },
             f,

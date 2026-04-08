@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 import torch
 import torch.nn.functional as F
 
-from RouterCore.Data.DatasetSchema import get_strategy_name
+from RouterCore.Data.DatasetSchema import get_strategy_name_from_list
 
 from .base_trainer import BaseTrainer
 
@@ -41,6 +41,7 @@ class HardClassificationTrainer(BaseTrainer):
         total_examples = 0
         total_correct = 0
         predictions_output: List[Dict[str, Any]] = []
+        strategy_names = list(self.model.config.model.strategy_names)
 
         with torch.no_grad():
             for batch in dataloader:
@@ -67,9 +68,9 @@ class HardClassificationTrainer(BaseTrainer):
                         record = {
                             "id": sample_id,
                             "predicted_index": predicted_index,
-                            "predicted_strategy": get_strategy_name(predicted_index),
+                            "predicted_strategy": get_strategy_name_from_list(predicted_index, strategy_names),
                             "true_index": true_index,
-                            "true_strategy": get_strategy_name(true_index),
+                            "true_strategy": get_strategy_name_from_list(true_index, strategy_names),
                             "correct": predicted_index == true_index,
                         }
                         if raw_questions is not None and idx < len(raw_questions):

@@ -8,7 +8,7 @@ import random
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from RouterCore.Data.DatasetSchema import STRATEGY_NAMES, validate_sample_id, validate_strategy_names
+from RouterCore.Data.DatasetSchema import validate_sample_id, validate_strategy_names
 from RouterCore.RouterPathConfig import RouterPathConfig
 
 
@@ -24,11 +24,13 @@ class SplitBuilder:
     def __init__(
         self,
         split_name: str | None = None,
+        label_name: str = "hard_llm_correct_rule_v1",
         seed: int = DEFAULT_SEED,
         train_ratio: float = DEFAULT_TRAIN_RATIO,
         val_ratio: float = DEFAULT_VAL_RATIO,
     ):
         self.split_name = split_name or self.DEFAULT_SPLIT_NAME
+        self.label_name = label_name
         self.seed = seed
         self.train_ratio = train_ratio
         self.val_ratio = val_ratio
@@ -49,7 +51,7 @@ class SplitBuilder:
 
     def load_hard_labels(self, dataset_name: str, result_model: str) -> Dict[str, Any]:
         """Load hard-label router data from RouterTrainingData/Labels."""
-        hard_label_path = RouterPathConfig.get_hard_label_path(dataset_name, result_model)
+        hard_label_path = RouterPathConfig.get_hard_label_path(dataset_name, result_model, self.label_name)
         if not hard_label_path.exists():
             raise FileNotFoundError(f"Missing hard-label router data file: {hard_label_path}")
 
@@ -57,7 +59,8 @@ class SplitBuilder:
             hard_labels = json.load(f)
 
         metadata = hard_labels.get("metadata", {})
-        validate_strategy_names(metadata.get("strategies", []))
+        strategies = metadata.get("strategies", [])
+        validate_strategy_names(strategies)
         samples = hard_labels.get("samples")
         if not isinstance(samples, list):
             raise ValueError("Hard-label router data must contain a 'samples' list")
@@ -66,13 +69,15 @@ class SplitBuilder:
     def build(self, dataset_name: str, result_model: str) -> Dict[str, Any]:
         """Build split metadata for a dataset/model pair."""
         hard_labels = self.load_hard_labels(dataset_name, result_model)
-        grouped_ids = self.group_sample_ids_by_label(hard_labels["samples"])
+        strategies = hard_labels.get("metadata", {}).get("strategies", [])
+        validate_strategy_names(strategies)
+        grouped_ids = self.group_sample_ids_by_label(hard_labels["samples"], strategies)
 
         train_ids: List[str] = []
         val_ids: List[str] = []
         test_ids: List[str] = []
 
-        for label_name in STRATEGY_NAMES:
+        for label_name in strategies:
             group_train, group_val, group_test = self.split_group(grouped_ids[label_name], label_name)
             train_ids.extend(group_train)
             val_ids.extend(group_val)
@@ -91,7 +96,11 @@ class SplitBuilder:
                 "split_name": self.split_name,
                 "seed": self.seed,
                 "strategy": self.SPLIT_STRATEGY,
-                "source_hard_label_file": RouterPathConfig.get_hard_label_path(dataset_name, result_model).name,
+                "source_hard_label_file": RouterPathConfig.get_hard_label_path(
+                    dataset_name,
+                    result_model,
+                    self.label_name,
+                ).name,
                 "train_ratio": self.train_ratio,
                 "val_ratio": self.val_ratio,
             },
@@ -102,9 +111,13 @@ class SplitBuilder:
             },
         }
 
-    def group_sample_ids_by_label(self, hard_label_samples: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    def group_sample_ids_by_label(
+        self,
+        hard_label_samples: List[Dict[str, Any]],
+        strategies: List[str],
+    ) -> Dict[str, List[str]]:
         """Group sample ids by optimal hard-label strategy."""
-        grouped_ids: Dict[str, List[str]] = {strategy_name: [] for strategy_name in STRATEGY_NAMES}
+        grouped_ids: Dict[str, List[str]] = {strategy_name: [] for strategy_name in strategies}
 
         for sample in hard_label_samples:
             sample_id = sample.get("id")

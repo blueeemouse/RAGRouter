@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 
 from RouterCore.Data.DatasetSchema import (
     STRATEGY_NAMES,
-    get_strategy_index,
+    get_strategy_index_from_list,
     validate_sample_id,
     validate_strategy_names,
 )
@@ -22,6 +22,12 @@ class HardLabelBuilder:
     TIE_BREAK_RULE = "priority_order_v1"
     PRIMARY_METRIC = "llm_judge_correct"
     FALLBACK_METRIC = "semantic_f1"
+    ALL_FAILED_STRATEGY = "all_failed"
+    ALL_FAILED_LABEL_SUFFIX = "_v2_all_failed_class"
+    ALL_FAILED_RULE = {
+        "llm_judge_correct": "!= 1",
+        "semantic_f1": "== 0",
+    }
     PRIORITY_ORDER: List[str] = [
         "llm_direct",
         "naive_rag",
@@ -33,6 +39,10 @@ class HardLabelBuilder:
 
     def __init__(self, label_name: str | None = None):
         self.label_name = label_name or self.LABEL_NAME
+        self.enable_all_failed = self.label_name.endswith(self.ALL_FAILED_LABEL_SUFFIX)
+        self.active_strategies = STRATEGY_NAMES.copy()
+        if self.enable_all_failed:
+            self.active_strategies.append(self.ALL_FAILED_STRATEGY)
 
     def load_aggregated(self, dataset_name: str, result_model: str) -> Dict[str, Any]:
         """Load aggregated query metrics from RouterTrainingData/Aggregated."""
@@ -62,11 +72,12 @@ class HardLabelBuilder:
                 "result_model": result_model,
                 "label_name": self.label_name,
                 "source_aggregated_file": RouterPathConfig.get_aggregated_path(dataset_name, result_model).name,
-                "strategies": STRATEGY_NAMES,
+                "strategies": self.active_strategies,
                 "primary_metric": self.PRIMARY_METRIC,
                 "fallback_metric": self.FALLBACK_METRIC,
                 "tie_break_rule": self.TIE_BREAK_RULE,
                 "priority_order": self.PRIORITY_ORDER,
+                "all_failed_rule": self.ALL_FAILED_RULE if self.enable_all_failed else None,
             },
             "samples": hard_samples,
         }
@@ -80,16 +91,32 @@ class HardLabelBuilder:
         if not isinstance(method_metrics, dict):
             raise ValueError(f"Aggregated sample '{sample_id}' must contain a method_metrics dict")
 
-        candidate_best_strategies, decision_source = self.select_candidate_strategies(sample_id, method_metrics)
-        optimal_strategy = self.apply_priority_order(candidate_best_strategies)
+        all_failed = self.is_all_failed_sample(method_metrics)
+        if self.enable_all_failed and all_failed:
+            optimal_strategy = self.ALL_FAILED_STRATEGY
+            candidate_best_strategies = [optimal_strategy]
+            decision_source = "all_failed_gate"
+        else:
+            candidate_best_strategies, decision_source = self.select_candidate_strategies(sample_id, method_metrics)
+            optimal_strategy = self.apply_priority_order(candidate_best_strategies)
 
         return {
             "id": sample_id,
             "optimal_strategy": optimal_strategy,
-            "label_index": get_strategy_index(optimal_strategy),
+            "label_index": get_strategy_index_from_list(optimal_strategy, self.active_strategies),
             "candidate_best_strategies": candidate_best_strategies,
             "decision_source": decision_source,
         }
+
+    def is_all_failed_sample(self, method_metrics: Dict[str, Dict[str, Any]]) -> bool:
+        """Return True when all base strategies are judged failed by strict rule."""
+        for strategy_name in STRATEGY_NAMES:
+            metrics = method_metrics.get(strategy_name, {})
+            if metrics.get("llm_judge_correct") == 1:
+                return False
+            if metrics.get("semantic_f1") != 0:
+                return False
+        return True
 
     def select_candidate_strategies(
         self,

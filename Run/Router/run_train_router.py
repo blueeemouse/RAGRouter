@@ -160,6 +160,7 @@ def build_training_stack(config: RouterConfig, args: argparse.Namespace):
         tokenizer = AutoTokenizer.from_pretrained(config.model.backbone_name)
 
     train_dataset, train_dataloader = build_dataloader(config, args, split="train", tokenizer=tokenizer)
+    config.model.strategy_names = list(train_dataset.strategy_names)
     val_dataset, val_dataloader = build_dataloader(config, args, split="val", tokenizer=tokenizer)
     test_dataset, test_dataloader = build_dataloader(config, args, split="test", tokenizer=tokenizer)
 

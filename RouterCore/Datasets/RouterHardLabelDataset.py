@@ -9,7 +9,7 @@ import torch
 from safetensors.torch import load_file
 from torch.utils.data import Dataset
 
-from RouterCore.Data.DatasetSchema import validate_sample_id
+from RouterCore.Data.DatasetSchema import STRATEGY_NAMES, validate_sample_id, validate_strategy_names
 from RouterCore.RouterPathConfig import RouterPathConfig
 
 
@@ -44,6 +44,7 @@ class RouterHardLabelTextDataset(Dataset):
         split_data = self.load_split(dataset_name, split_name)
 
         self.samples = self.build_samples(aggregated, hard_labels, split_data, split)
+        self.strategy_names = self.extract_strategy_names(hard_labels)
 
     def load_aggregated(self, dataset_name: str, result_model: str) -> Dict[str, Any]:
         """Load aggregated router data."""
@@ -104,6 +105,15 @@ class RouterHardLabelTextDataset(Dataset):
             )
         return dataset_samples
 
+    def extract_strategy_names(self, hard_labels: Dict[str, Any]) -> List[str]:
+        """Read strategy names from hard-label metadata, fallback to default v1 list."""
+        metadata = hard_labels.get("metadata", {}) if isinstance(hard_labels, dict) else {}
+        strategies = metadata.get("strategies")
+        if isinstance(strategies, list):
+            validate_strategy_names(strategies)
+            return list(strategies)
+        return STRATEGY_NAMES.copy()
+
     def index_samples_by_id(self, samples: Any, source_name: str) -> Dict[str, Dict[str, Any]]:
         """Index a sample list by string sample id."""
         if not isinstance(samples, list):
@@ -150,6 +160,7 @@ class RouterHardLabelFeatureDataset(Dataset):
             raise ValueError(f"Unknown split '{split}' in split file")
 
         self.samples = self.build_feature_samples(split_ids, labels_by_id)
+        self.strategy_names = self.extract_strategy_names(hard_labels)
 
     def load_hard_labels(self, dataset_name: str, result_model: str, label_name: str) -> Dict[str, Any]:
         """Load hard-label router data."""
@@ -209,6 +220,15 @@ class RouterHardLabelFeatureDataset(Dataset):
                 }
             )
         return dataset_samples
+
+    def extract_strategy_names(self, hard_labels: Dict[str, Any]) -> List[str]:
+        """Read strategy names from hard-label metadata, fallback to default v1 list."""
+        metadata = hard_labels.get("metadata", {}) if isinstance(hard_labels, dict) else {}
+        strategies = metadata.get("strategies")
+        if isinstance(strategies, list):
+            validate_strategy_names(strategies)
+            return list(strategies)
+        return STRATEGY_NAMES.copy()
 
     def index_samples_by_id(self, samples: Any, source_name: str) -> Dict[str, Dict[str, Any]]:
         """Index a sample list by string sample id."""

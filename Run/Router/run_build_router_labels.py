@@ -28,6 +28,12 @@ def parse_args() -> argparse.Namespace:
         help="Label type to build",
     )
     parser.add_argument("--dry-run", action="store_true", help="Build label data but do not save it")
+    parser.add_argument(
+        "--label-name",
+        type=str,
+        default="hard_llm_correct_rule_v1",
+        help="Hard-label file name prefix",
+    )
     return parser.parse_args()
 
 
@@ -35,7 +41,7 @@ def main() -> int:
     args = parse_args()
 
     if args.label_type == "hard":
-        builder = HardLabelBuilder()
+        builder = HardLabelBuilder(label_name=args.label_name)
     else:
         raise ValueError(f"Unsupported label type: {args.label_type}")
 
