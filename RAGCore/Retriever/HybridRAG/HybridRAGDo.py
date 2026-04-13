@@ -16,6 +16,7 @@ from Config.LLMConfig import LLMConfig
 from Config.RetrieverConfig import RetrieverConfig
 from Config.PathConfig import PathConfig
 from RAGCore.Prompt.PromptTemplate import PromptTemplate
+from RAGCore.Utils.TokenTracker import TokenTracker
 
 
 class HybridRAGProcessor:
@@ -258,12 +259,13 @@ class HybridRAGProcessor:
         texts = [chunk.get("text", "") for chunk in chunks if chunk.get("text")]
         return RetrieverConfig.CHUNK_SEPARATOR.join(texts)
 
-    def answer_with_context(self, question: str, context: str) -> str:
+    def answer_with_context(self, question: str, context: str, tracker: TokenTracker = None) -> str:
         """Generate answer using LLM with retrieved context
 
         Args:
             question: The question text
             context: Retrieved context
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -282,18 +284,22 @@ class HybridRAGProcessor:
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
 
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_with_context")
+
             return response.choices[0].message.content.strip()
 
         except Exception as e:
             print(f"Error generating answer: {e}")
             return None
 
-    async def answer_with_context_async(self, question: str, context: str) -> Optional[str]:
+    async def answer_with_context_async(self, question: str, context: str, tracker: TokenTracker = None) -> Optional[str]:
         """Async version: Generate answer using LLM with retrieved context
 
         Args:
             question: The question text
             context: Retrieved context
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -311,6 +317,9 @@ class HybridRAGProcessor:
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
+
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_with_context_async")
 
             return response.choices[0].message.content.strip()
 
@@ -384,9 +393,11 @@ class HybridRAGProcessor:
 
             # Step 4: Build context
             context = self.build_context(truncated)
+            ctx_len = RetrieverConfig.estimate_tokens(context)
 
             # Step 5: Generate answer with LLM
-            answer = self.answer_with_context(question, context)
+            tracker = TokenTracker()
+            answer = self.answer_with_context(question, context, tracker=tracker)
 
             # Prepare retrieval result
             retrieval_result = {
@@ -396,7 +407,7 @@ class HybridRAGProcessor:
 
             if answer is not None:
                 # Prepare answer result
-                result = {"id": qid, "rag_answer": answer}
+                result = {"id": qid, "rag_answer": answer, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
                 results.append(result)
                 processed_ids.add(qid)
 
@@ -407,7 +418,7 @@ class HybridRAGProcessor:
                     HybridRAGSaver.save_retrieval(retrieval_result, self.model_name, dataset_name)
             else:
                 # Record failure
-                error_result = {"id": qid, "rag_answer": None}
+                error_result = {"id": qid, "rag_answer": None, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
                 results.append(error_result)
 
                 if resume:
@@ -498,13 +509,17 @@ class HybridRAGProcessor:
 
                 # Step 4: Build context
                 context = self.build_context(truncated)
+                ctx_len = RetrieverConfig.estimate_tokens(context)
 
                 # Step 5: Generate answer with LLM (async)
-                answer = await self.answer_with_context_async(question, context)
+                tracker = TokenTracker()
+                answer = await self.answer_with_context_async(question, context, tracker=tracker)
 
                 return {
                     "id": qid,
                     "rag_answer": answer,
+                    "token_usage": tracker.to_dict(),
+                    "ctx_len": ctx_len,
                     "retrieved_chunks": truncated
                 }
 
@@ -523,7 +538,7 @@ class HybridRAGProcessor:
 
             if result:
                 qid = result["id"]
-                answer_result = {"id": qid, "rag_answer": result["rag_answer"]}
+                answer_result = {"id": qid, "rag_answer": result["rag_answer"], "token_usage": result["token_usage"], "ctx_len": result["ctx_len"]}
                 results.append(answer_result)
                 processed_ids.add(qid)
 

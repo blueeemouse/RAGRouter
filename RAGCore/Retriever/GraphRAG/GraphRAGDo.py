@@ -21,6 +21,7 @@ from Config.RetrieverConfig import RetrieverConfig
 from Config.PathConfig import PathConfig
 from RAGCore.Prompt.PromptTemplate import PromptTemplate
 from RAGCore.Embedding.EmbeddingDo import EmbeddingProcessor
+from RAGCore.Utils.TokenTracker import TokenTracker
 
 
 class GraphRAGProcessor:
@@ -139,11 +140,12 @@ class GraphRAGProcessor:
 
         return questions
 
-    def extract_query_entities(self, question: str) -> List[str]:
+    def extract_query_entities(self, question: str, tracker: TokenTracker = None) -> List[str]:
         """Extract entities from question using LLM
 
         Args:
             question: The question text
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             List of extracted entity strings
@@ -155,13 +157,15 @@ class GraphRAGProcessor:
                 messages=messages,
                 temperature=0.0
             )
+            if tracker:
+                tracker.track(response, phase="retrieval", function="extract_query_entities")
             entities = json.loads(response.choices[0].message.content)
             return entities if isinstance(entities, list) else []
         except Exception as e:
             print(f"Warning: Failed to extract entities from question: {e}")
             return []
 
-    def retrieve_seed_entities(self, question: str, top_k: int = None) -> List[Tuple[int, float]]:
+    def retrieve_seed_entities(self, question: str, top_k: int = None, tracker: TokenTracker = None) -> List[Tuple[int, float]]:
         """Retrieve top-k seed entities from entity index
 
         Now uses entity extraction first, then matches each extracted entity
@@ -170,6 +174,7 @@ class GraphRAGProcessor:
         Args:
             question: The question text
             top_k: Number of seed entities to retrieve
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             List of (entity_id, similarity) tuples
@@ -178,7 +183,7 @@ class GraphRAGProcessor:
             top_k = RetrieverConfig.GRAPH_SEED_ENTITIES
 
         # Step 1: Extract entities from question using LLM
-        query_entities = self.extract_query_entities(question)
+        query_entities = self.extract_query_entities(question, tracker=tracker)
 
         if not query_entities:
             # Fallback: use entire question if no entities extracted
@@ -588,12 +593,13 @@ class GraphRAGProcessor:
         print(f"Using {len(context_parts)} source sentences as context (~{current_tokens} tokens)")
         return "\n\n".join(context_parts)
 
-    def answer_with_context(self, question: str, context: str) -> str:
+    def answer_with_context(self, question: str, context: str, tracker: TokenTracker = None) -> str:
         """Generate answer using LLM with retrieved context
 
         Args:
             question: The question text
             context: Retrieved context (serialized graph)
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -610,17 +616,21 @@ class GraphRAGProcessor:
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
 
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_with_context")
+
             return response.choices[0].message.content.strip()
 
         except Exception as e:
             print(f"Error generating answer: {e}")
             return None
 
-    async def extract_query_entities_async(self, question: str) -> List[str]:
+    async def extract_query_entities_async(self, question: str, tracker: TokenTracker = None) -> List[str]:
         """Async version: Extract entities from question using LLM
 
         Args:
             question: The question text
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             List of extracted entity strings
@@ -632,17 +642,20 @@ class GraphRAGProcessor:
                 messages=messages,
                 temperature=0.0
             )
+            if tracker:
+                tracker.track(response, phase="retrieval", function="extract_query_entities_async")
             entities = json.loads(response.choices[0].message.content)
             return entities if isinstance(entities, list) else []
         except Exception as e:
             return []
 
-    async def answer_with_context_async(self, question: str, context: str) -> Optional[str]:
+    async def answer_with_context_async(self, question: str, context: str, tracker: TokenTracker = None) -> Optional[str]:
         """Async version: Generate answer using LLM with retrieved context
 
         Args:
             question: The question text
             context: Retrieved context (serialized graph)
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             Answer string, or None if failed
@@ -658,18 +671,22 @@ class GraphRAGProcessor:
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
 
+            if tracker:
+                tracker.track(response, phase="generation", function="answer_with_context_async")
+
             return response.choices[0].message.content.strip()
 
         except Exception as e:
             print(f"Error generating answer: {e}")
             return None
 
-    async def retrieve_seed_entities_async(self, question: str, top_k: int = None) -> List[Tuple[int, float]]:
+    async def retrieve_seed_entities_async(self, question: str, top_k: int = None, tracker: TokenTracker = None) -> List[Tuple[int, float]]:
         """Async version: Retrieve top-k seed entities from entity index
 
         Args:
             question: The question text
             top_k: Number of seed entities to retrieve
+            tracker: Optional TokenTracker to record usage
 
         Returns:
             List of (entity_id, similarity) tuples
@@ -678,7 +695,7 @@ class GraphRAGProcessor:
             top_k = RetrieverConfig.GRAPH_SEED_ENTITIES
 
         # Step 1: Extract entities from question using LLM (async)
-        query_entities = await self.extract_query_entities_async(question)
+        query_entities = await self.extract_query_entities_async(question, tracker=tracker)
 
         if not query_entities:
             query_entities = [question]
@@ -767,7 +784,8 @@ class GraphRAGProcessor:
                 continue
 
             # Step 1: Retrieve seed entities
-            seed_entities = self.retrieve_seed_entities(question)
+            tracker = TokenTracker()
+            seed_entities = self.retrieve_seed_entities(question, tracker=tracker)
 
             # Build entity_name -> similarity mapping for sorting
             entity_similarities = {
@@ -786,13 +804,14 @@ class GraphRAGProcessor:
 
             # Step 6: Serialize triplets to context (sorted by entity similarity)
             context = self.serialize_subgraph(subgraph_data["triplets"], entity_similarities)
+            ctx_len = RetrieverConfig.estimate_tokens(context)
 
             # Step 7: Generate answer with LLM
-            answer = self.answer_with_context(question, context)
+            answer = self.answer_with_context(question, context, tracker=tracker)
 
             if answer is not None:
                 # Prepare answer result
-                result = {"id": q_id, "rag_answer": answer}
+                result = {"id": q_id, "rag_answer": answer, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
                 results.append(result)
                 processed_ids.add(q_id)
 
@@ -811,7 +830,7 @@ class GraphRAGProcessor:
                     GraphRAGSaver.save_retrieval(retrieval_result, self.model_name, dataset_name)
             else:
                 # Record failure
-                error_result = {"id": q_id, "rag_answer": None}
+                error_result = {"id": q_id, "rag_answer": None, "token_usage": tracker.to_dict(), "ctx_len": ctx_len}
                 results.append(error_result)
 
                 if resume:
@@ -899,8 +918,10 @@ class GraphRAGProcessor:
                 q_id = q_data['id']
                 question = q_data['question']
 
+                tracker = TokenTracker()
+
                 # Step 1: Retrieve seed entities (async LLM call for entity extraction)
-                seed_entities = await self.retrieve_seed_entities_async(question)
+                seed_entities = await self.retrieve_seed_entities_async(question, tracker=tracker)
 
                 # Build entity_name -> similarity mapping for sorting
                 entity_similarities = {
@@ -919,13 +940,16 @@ class GraphRAGProcessor:
 
                 # Step 5: Serialize to context
                 context = self.serialize_subgraph(subgraph_data["triplets"], entity_similarities)
+                ctx_len = RetrieverConfig.estimate_tokens(context)
 
                 # Step 6: Generate answer with LLM (async)
-                answer = await self.answer_with_context_async(question, context)
+                answer = await self.answer_with_context_async(question, context, tracker=tracker)
 
                 return {
                     "id": q_id,
                     "rag_answer": answer,
+                    "token_usage": tracker.to_dict(),
+                    "ctx_len": ctx_len,
                     "nodes": subgraph_data["nodes"],
                     "triplets": subgraph_data["triplets"],
                     "source_sentences": source_sentences
@@ -946,7 +970,7 @@ class GraphRAGProcessor:
 
             if result:
                 q_id = result["id"]
-                answer_result = {"id": q_id, "rag_answer": result["rag_answer"]}
+                answer_result = {"id": q_id, "rag_answer": result["rag_answer"], "token_usage": result["token_usage"], "ctx_len": result["ctx_len"]}
                 results.append(answer_result)
                 processed_ids.add(q_id)
 
