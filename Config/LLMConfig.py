@@ -43,7 +43,8 @@ class LLMConfig:
     ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
     # LLAMA_BASE_URL = "http://localhost:8000/v1"
     # --- [Modified] Llama 3.1 8B on port 8001 for answering ---
-    LLAMA_BASE_URL = "http://localhost:8001/v1"
+    # LLAMA_BASE_URL = "http://localhost:8001/v1"
+    LLAMA_BASE_URL = "http://localhost:8003/v1"
     # --- [End Modified] ---
 
 
