@@ -83,6 +83,7 @@ class IterativeRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
@@ -101,6 +102,7 @@ class IterativeRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
@@ -119,6 +121,7 @@ class IterativeRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.ITERATIVE_EVAL_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=300,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
@@ -145,6 +148,7 @@ class IterativeRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
@@ -163,6 +167,7 @@ class IterativeRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
@@ -181,6 +186,7 @@ class IterativeRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.ITERATIVE_EVAL_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=300,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )

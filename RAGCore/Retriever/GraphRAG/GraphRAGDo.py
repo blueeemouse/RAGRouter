@@ -18,6 +18,7 @@ from tqdm import tqdm
 from Config.LLMConfig import LLMConfig
 from Config.EmbConfig import EmbConfig
 from Config.RetrieverConfig import RetrieverConfig
+from Config.GraphConfig import GraphConfig
 from Config.PathConfig import PathConfig
 from RAGCore.Prompt.PromptTemplate import PromptTemplate
 from RAGCore.Embedding.EmbeddingDo import EmbeddingProcessor
@@ -155,7 +156,8 @@ class GraphRAGProcessor:
             response = self.llm_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.0
+                temperature=0.0,
+                seed=GraphConfig.SEED
             )
             if tracker:
                 tracker.track(response, phase="retrieval", function="extract_query_entities")
@@ -612,6 +614,7 @@ class GraphRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
@@ -640,7 +643,8 @@ class GraphRAGProcessor:
             response = await self.async_llm_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.0
+                temperature=0.0,
+                seed=GraphConfig.SEED
             )
             if tracker:
                 tracker.track(response, phase="retrieval", function="extract_query_entities_async")
@@ -667,6 +671,7 @@ class GraphRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )

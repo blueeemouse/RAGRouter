@@ -4,6 +4,9 @@ class GraphConfig:
     # Graph Type
     DIRECTED = False  # Use undirected graph for bidirectional traversal
 
+    # Reproducibility
+    SEED = 42  # Fixed seed for LLM calls in graph construction
+
     # Async Triplet Extraction 
     # MAX_CONCURRENT = 15            # Maximum concurrent requests (10-20 recommended for DeepSeek API)
     MAX_CONCURRENT = 10

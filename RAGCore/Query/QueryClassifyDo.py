@@ -57,6 +57,7 @@ class QueryClassifier:
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=QueryConfig.TEMPERATURE,
+                    seed=QueryConfig.SEED,
                     max_tokens=QueryConfig.MAX_TOKENS,
                     timeout=QueryConfig.TIMEOUT
                 )

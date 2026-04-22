@@ -280,6 +280,7 @@ class HybridRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )
@@ -314,6 +315,7 @@ class HybridRAGProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=RetrieverConfig.RAG_TEMPERATURE,
+                seed=RetrieverConfig.RAG_SEED,
                 max_tokens=RetrieverConfig.RAG_MAX_TOKENS,
                 timeout=RetrieverConfig.RAG_TIMEOUT
             )

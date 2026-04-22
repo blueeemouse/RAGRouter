@@ -27,6 +27,7 @@ class QueryConfig:
     TEMPERATURE = 0.0                # Deterministic classification
     MAX_TOKENS = 50                  # Short response expected
     TIMEOUT = 30                     # Request timeout in seconds
+    SEED = 42                        # Fixed seed for reproducibility
 
     # Batch Processing
     BATCH_SIZE = 10                  # Questions to process before progress update

@@ -49,9 +49,11 @@ class LLMConfig:
 
 
     # Generation Parameters
-    TEMPERATURE = 0.7                          # Randomness (0.0-2.0)
+    # TEMPERATURE = 0.7                          # Randomness (0.0-2.0)
+    TEMPERATURE = 0.0
     MAX_TOKENS = 1000                          # Maximum tokens in response
     TOP_P = 0.9                                # Nucleus sampling
+    SEED = 42                                  # Fixed seed for reproducibility
 
 
     # API Request Settings

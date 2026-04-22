@@ -37,9 +37,11 @@ class RetrieverConfig:
     # LLM for RAG (Answer Generation)
     # Note: Uses LLMConfig.PROVIDER and model settings
     # This section is for RAG-specific LLM parameters
-    RAG_TEMPERATURE = 0.3                       # Lower temperature for more focused answers
+    # RAG_TEMPERATURE = 0.3                       # Lower temperature for more focused answers
+    RAG_TEMPERATURE = 0.0
     RAG_MAX_TOKENS = 1000                        # Maximum tokens for RAG answers
     RAG_TIMEOUT = 120                            # Request timeout in seconds
+    RAG_SEED = 42                                # Fixed seed for reproducibility
 
     # Graph RAG Specific Parameters
     GRAPH_SEED_ENTITIES = 20                     # Top-k seed entities to retrieve
@@ -63,7 +65,8 @@ class RetrieverConfig:
     ITERATIVE_RETRIEVER = "graph"               # "naive" or "graph"
     # ITERATIVE_RETRIEVER = "naive"               
     ITERATIVE_MAX_ITERATIONS = 3                # Maximum retrieval iterations
-    ITERATIVE_EVAL_TEMPERATURE = 0.1            # Temperature for evaluator LLM
+    # ITERATIVE_EVAL_TEMPERATURE = 0.1            # Temperature for evaluator LLM
+    ITERATIVE_EVAL_TEMPERATURE = 0.0
 
 
 # Usage example

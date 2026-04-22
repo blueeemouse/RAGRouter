@@ -102,7 +102,8 @@ class GraphProcessor:
                     response = self.llm_client.chat.completions.create(
                         model=self.llm_model,
                         messages=messages,
-                        temperature=0.0
+                        temperature=0.0,
+                        seed=GraphConfig.SEED
                     )
 
                     try:
@@ -630,6 +631,7 @@ class GraphProcessor:
                 model=self.llm_model,
                 messages=messages,
                 temperature=0.0,
+                seed=GraphConfig.SEED,
                 timeout=GraphConfig.REQUEST_TIMEOUT
             )
 

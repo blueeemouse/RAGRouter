@@ -16,15 +16,20 @@ Output:
 """
 import json
 import os
+import sys
 import asyncio
 import numpy as np
 import spacy
+import nltk
 from typing import Dict, List, Any, Optional
 from openai import OpenAI, AsyncOpenAI
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as atqdm
 from bert_score import score as bert_score
 from sentence_transformers import SentenceTransformer
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
+from nltk.translate.meteor_score import meteor_score
+from rouge_score import rouge_scorer
 
 from Config.LLMConfig import LLMConfig
 from Config.PathConfig import PathConfig
@@ -39,6 +44,13 @@ class ResultEvaluator:
     def __init__(self):
         """Initialize evaluator with LLM client"""
         self._setup_llm_client()
+        # 确保NLTK资源已下载
+        try:
+            nltk.download("wordnet", quiet=True)
+            nltk.download("punkt", quiet=True)
+            nltk.download("punkt_tab", quiet=True)
+        except Exception as e:
+            print(f"Warning: Failed to download NLTK resources: {e}")
 
     def _setup_llm_client(self):
         """Setup LLM client for evaluation (sync and async)"""
@@ -337,6 +349,118 @@ class ResultEvaluator:
             return True
         answer_lower = answer.lower()
         return "i cannot answer" in answer_lower or "cannot answer" in answer_lower
+
+    def compute_token_f1(self, ground_truth: str, predicted: str) -> float:
+        """Compute token-level F1 score between ground truth and predicted answer.
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            F1 score from 0-1 (returns 0.0 for refusal answers)
+        """
+        if self._is_refusal(predicted):
+            return 0.0
+
+        try:
+            gold_tokens = nltk.word_tokenize(ground_truth.lower())
+            response_tokens = nltk.word_tokenize(predicted.lower())
+
+            gold_set = set(gold_tokens)
+            response_set = set(response_tokens)
+
+            if len(gold_set) == 0 or len(response_set) == 0:
+                return 0.0
+
+            intersection = gold_set.intersection(response_set)
+            precision = len(intersection) / len(response_set)
+            recall = len(intersection) / len(gold_set)
+
+            if precision + recall > 0:
+                return 2 * precision * recall / (precision + recall)
+            return 0.0
+        except Exception as e:
+            print(f"Warning: Failed to compute token F1: {e}")
+            return 0.0
+
+    def compute_bleu1(self, ground_truth: str, predicted: str) -> float:
+        """Compute BLEU-1 score between ground truth and predicted answer.
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            BLEU-1 score from 0-1 (returns 0.0 for refusal answers)
+        """
+        if self._is_refusal(predicted):
+            return 0.0
+
+        try:
+            gold_tokens = nltk.word_tokenize(ground_truth.lower())
+            response_tokens = nltk.word_tokenize(predicted.lower())
+
+            smoothing = SmoothingFunction().method1
+            bleu1 = sentence_bleu(
+                [gold_tokens],
+                response_tokens,
+                weights=(1, 0, 0, 0),
+                smoothing_function=smoothing
+            )
+            return bleu1
+        except ZeroDivisionError:
+            return 0.0
+        except Exception as e:
+            print(f"Warning: Failed to compute BLEU-1: {e}")
+            return 0.0
+
+    def compute_rouge_scores(self, ground_truth: str, predicted: str) -> Dict[str, float]:
+        """Compute ROUGE-1, ROUGE-2, ROUGE-L scores.
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            Dict with rouge1_f, rouge2_f, rougeL_f scores from 0-1 (returns all 0.0 for refusal answers)
+        """
+        metrics = {"rouge1_f": 0.0, "rouge2_f": 0.0, "rougeL_f": 0.0}
+        if self._is_refusal(predicted):
+            return metrics
+
+        try:
+            scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
+            rouge_scores = scorer.score(ground_truth, predicted)
+            metrics["rouge1_f"] = rouge_scores["rouge1"].fmeasure
+            metrics["rouge2_f"] = rouge_scores["rouge2"].fmeasure
+            metrics["rougeL_f"] = rouge_scores["rougeL"].fmeasure
+        except Exception as e:
+            print(f"Warning: Failed to compute ROUGE scores: {e}")
+        return metrics
+
+    def compute_meteor(self, ground_truth: str, predicted: str) -> float:
+        """Compute METEOR score between ground truth and predicted answer.
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            METEOR score from 0-1 (returns 0.0 for refusal answers)
+        """
+        if self._is_refusal(predicted):
+            return 0.0
+
+        try:
+            gold_tokens = nltk.word_tokenize(ground_truth.lower())
+            response_tokens = nltk.word_tokenize(predicted.lower())
+
+            meteor = meteor_score([gold_tokens], response_tokens)
+            return meteor
+        except Exception as e:
+            print(f"Warning: Failed to compute METEOR score: {e}")
+            return 0.0
 
     def evaluate_faithfulness(self, predicted: str, retrieval_texts: List[str],
                                threshold: float = None) -> Optional[float]:
@@ -923,9 +1047,21 @@ class ResultEvaluator:
             else:
                 faith_hard, faith_soft = None, None
 
+            # New text metrics
+            token_f1 = self.compute_token_f1(ground_truth, predicted)
+            bleu1 = self.compute_bleu1(ground_truth, predicted)
+            rouge_scores = self.compute_rouge_scores(ground_truth, predicted)
+            meteor = self.compute_meteor(ground_truth, predicted)
+
             result = {
                 "id": qid,
                 "semantic_f1": semantic_f1_scores[i] if i < len(semantic_f1_scores) else 0.0,
+                "token_f1": token_f1,
+                "bleu1": bleu1,
+                "rouge1_f": rouge_scores["rouge1_f"],
+                "rouge2_f": rouge_scores["rouge2_f"],
+                "rougeL_f": rouge_scores["rougeL_f"],
+                "meteor": meteor,
                 "coverage": coverage,
                 "faithfulness_hard": faith_hard,
                 "faithfulness_soft": faith_soft,
@@ -1017,6 +1153,25 @@ class ResultEvaluator:
         f1_scores = [r['semantic_f1'] for r in results if r.get('semantic_f1') is not None]
         avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0
 
+        # New text metrics
+        token_f1_scores = [r['token_f1'] for r in results if r.get('token_f1') is not None]
+        avg_token_f1 = sum(token_f1_scores) / len(token_f1_scores) if token_f1_scores else 0
+
+        bleu1_scores = [r['bleu1'] for r in results if r.get('bleu1') is not None]
+        avg_bleu1 = sum(bleu1_scores) / len(bleu1_scores) if bleu1_scores else 0
+
+        rouge1_scores = [r['rouge1_f'] for r in results if r.get('rouge1_f') is not None]
+        avg_rouge1 = sum(rouge1_scores) / len(rouge1_scores) if rouge1_scores else 0
+
+        rouge2_scores = [r['rouge2_f'] for r in results if r.get('rouge2_f') is not None]
+        avg_rouge2 = sum(rouge2_scores) / len(rouge2_scores) if rouge2_scores else 0
+
+        rougeL_scores = [r['rougeL_f'] for r in results if r.get('rougeL_f') is not None]
+        avg_rougeL = sum(rougeL_scores) / len(rougeL_scores) if rougeL_scores else 0
+
+        meteor_scores = [r['meteor'] for r in results if r.get('meteor') is not None]
+        avg_meteor = sum(meteor_scores) / len(meteor_scores) if meteor_scores else 0
+
         # Coverage
         cov_scores = [r['coverage'] for r in results if r.get('coverage') is not None]
         avg_cov = sum(cov_scores) / len(cov_scores) if cov_scores else 0
@@ -1038,6 +1193,12 @@ class ResultEvaluator:
         print("=" * 60)
         print(f"Total questions: {total}")
         print(f"\nSemantic F1 (BERTScore):  {avg_f1:.4f}")
+        print(f"Token F1:                  {avg_token_f1:.4f}")
+        print(f"BLEU-1:                    {avg_bleu1:.4f}")
+        print(f"ROUGE-1:                   {avg_rouge1:.4f}")
+        print(f"ROUGE-2:                   {avg_rouge2:.4f}")
+        print(f"ROUGE-L:                   {avg_rougeL:.4f}")
+        print(f"METEOR:                    {avg_meteor:.4f}")
         print(f"Coverage (Soft):          {avg_cov:.4f}")
         print(f"Faithfulness (Hard):      {avg_faith_hard:.4f}")
         print(f"Faithfulness (Soft):      {avg_faith_soft:.4f}")
@@ -1051,13 +1212,16 @@ class ResultEvaluator:
         # Append summary to summary.json
         if model_name and dataset_name and method:
             self._save_summary(model_name, dataset_name, method, retriever_type,
-                               total, avg_f1, avg_cov, avg_faith_hard, avg_faith_soft,
+                               total, avg_f1, avg_token_f1, avg_bleu1,
+                               avg_rouge1, avg_rouge2, avg_rougeL, avg_meteor,
+                               avg_cov, avg_faith_hard, avg_faith_soft,
                                correct, incorrect, incomplete, len(labels))
 
     def _save_summary(self, model_name: str, dataset_name: str, method: str,
                       retriever_type: str, total: int,
-                      semantic_f1: float, coverage: float,
-                      faithfulness_hard: float, faithfulness_soft: float,
+                      semantic_f1: float, token_f1: float, bleu1: float,
+                      rouge1: float, rouge2: float, rougeL: float, meteor: float,
+                      coverage: float, faithfulness_hard: float, faithfulness_soft: float,
                       correct: int, incorrect: int, incomplete: int,
                       labeled_count: int):
         """Append evaluation summary to summary.json"""
@@ -1075,6 +1239,12 @@ class ResultEvaluator:
             "method": method_key,
             "total": total,
             "semantic_f1": round(semantic_f1, 4),
+            "token_f1": round(token_f1, 4),
+            "bleu1": round(bleu1, 4),
+            "rouge1_f": round(rouge1, 4),
+            "rouge2_f": round(rouge2, 4),
+            "rougeL_f": round(rougeL, 4),
+            "meteor": round(meteor, 4),
             "coverage": round(coverage, 4),
             "faithfulness_hard": round(faithfulness_hard, 4),
             "faithfulness_soft": round(faithfulness_soft, 4),

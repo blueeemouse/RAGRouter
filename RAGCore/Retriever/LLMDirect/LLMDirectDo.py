@@ -90,6 +90,7 @@ class LLMDirectProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=LLMConfig.TEMPERATURE,
+                seed=LLMConfig.SEED,
                 max_tokens=LLMConfig.MAX_TOKENS,
                 timeout=LLMConfig.TIMEOUT
             )
@@ -120,6 +121,7 @@ class LLMDirectProcessor:
                 model=self.model,
                 messages=messages,
                 temperature=LLMConfig.TEMPERATURE,
+                seed=LLMConfig.SEED,
                 max_tokens=LLMConfig.MAX_TOKENS,
                 timeout=LLMConfig.TIMEOUT
             )
