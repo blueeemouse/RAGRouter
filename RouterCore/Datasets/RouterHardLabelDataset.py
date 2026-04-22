@@ -144,6 +144,7 @@ class RouterHardLabelFeatureDataset(Dataset):
         split_name: str = "split_v1",
         label_name: str = "hard_llm_correct_rule_v1",
         feature_name: str = "mean_hidden",
+        load_questions: bool = False,
     ):
         self.dataset_name = dataset_name
         self.result_model = result_model
@@ -151,6 +152,7 @@ class RouterHardLabelFeatureDataset(Dataset):
         self.split_name = split_name
         self.label_name = label_name
         self.feature_name = feature_name
+        self.load_questions = load_questions
 
         hard_labels = self.load_hard_labels(dataset_name, result_model, label_name)
         split_data = self.load_split(dataset_name, split_name)
@@ -159,7 +161,13 @@ class RouterHardLabelFeatureDataset(Dataset):
         if split_ids is None:
             raise ValueError(f"Unknown split '{split}' in split file")
 
-        self.samples = self.build_feature_samples(split_ids, labels_by_id)
+        # Load aggregated data for questions if needed
+        aggregated_by_id = None
+        if self.load_questions:
+            aggregated = self.load_aggregated(dataset_name, result_model)
+            aggregated_by_id = self.index_samples_by_id(aggregated.get("samples"), source_name="aggregated")
+
+        self.samples = self.build_feature_samples(split_ids, labels_by_id, aggregated_by_id)
         self.strategy_names = self.extract_strategy_names(hard_labels)
 
     def load_hard_labels(self, dataset_name: str, result_model: str, label_name: str) -> Dict[str, Any]:
@@ -178,6 +186,14 @@ class RouterHardLabelFeatureDataset(Dataset):
         with split_path.open("r", encoding="utf-8") as f:
             return json.load(f)
 
+    def load_aggregated(self, dataset_name: str, result_model: str) -> Dict[str, Any]:
+        """Load aggregated router data (for questions)."""
+        aggregated_path = RouterPathConfig.get_aggregated_path(dataset_name, result_model)
+        if not aggregated_path.exists():
+            raise FileNotFoundError(f"Missing aggregated router data file: {aggregated_path}")
+        with aggregated_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
     def get_hidden_state_root(self) -> str:
         """Return the hidden-state directory for the dataset/result-model pair."""
         hidden_root = (
@@ -194,6 +210,7 @@ class RouterHardLabelFeatureDataset(Dataset):
         self,
         split_ids: List[str],
         labels_by_id: Dict[str, Dict[str, Any]],
+        aggregated_by_id: Dict[str, Dict[str, Any]] | None = None,
     ) -> List[Dict[str, Any]]:
         """Load hidden-state features for split ids and join them with labels."""
         hidden_root = self.get_hidden_state_root()
@@ -212,13 +229,19 @@ class RouterHardLabelFeatureDataset(Dataset):
                     f"Feature '{self.feature_name}' not found in hidden-state file for sample '{sample_id}'"
                 )
 
-            dataset_samples.append(
-                {
-                    "id": sample_id,
-                    "features": tensors[self.feature_name].to(torch.float32),
-                    "label_index": label_sample.get("label_index"),
-                }
-            )
+            sample_dict = {
+                "id": sample_id,
+                "features": tensors[self.feature_name].to(torch.float32),
+                "label_index": label_sample.get("label_index"),
+            }
+
+            # Add question if available
+            if aggregated_by_id is not None:
+                aggregated_sample = aggregated_by_id.get(sample_id)
+                if aggregated_sample is not None:
+                    sample_dict["question"] = aggregated_sample.get("question", "")
+
+            dataset_samples.append(sample_dict)
         return dataset_samples
 
     def extract_strategy_names(self, hard_labels: Dict[str, Any]) -> List[str]:

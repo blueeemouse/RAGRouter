@@ -30,9 +30,20 @@ from RouterCore.RouterPathConfig import RouterPathConfig
 METRIC_KEYS = [
     "llm_judge_correct",
     "semantic_f1",
+    "token_f1",
+    "bleu1",
+    "rouge1_f",
+    "rouge2_f",
+    "rougeL_f",
+    "meteor",
     "coverage",
     "faithfulness_hard",
     "faithfulness_soft",
+]
+
+TOKEN_COUNT_KEYS = [
+    "input_tokens",
+    "output_tokens",
 ]
 
 
@@ -69,6 +80,7 @@ def load_aggregated_and_split(dataset: str, result_model: str, split_name: str):
 def compute_average_metrics_for_strategies(samples: List[Dict[str, Any]], strategies: List[str]) -> Dict[str, Any]:
     """Compute average metrics for each fixed strategy across the provided samples."""
     strategy_metrics = defaultdict(lambda: {key: [] for key in METRIC_KEYS})
+    token_counts = defaultdict(lambda: {key: [] for key in TOKEN_COUNT_KEYS})
 
     for sample in samples:
         for strategy in strategies:
@@ -77,6 +89,10 @@ def compute_average_metrics_for_strategies(samples: List[Dict[str, Any]], strate
                 value = metrics.get(key)
                 if value is not None:
                     strategy_metrics[strategy][key].append(value)
+            for key in TOKEN_COUNT_KEYS:
+                value = metrics.get(key)
+                if value is not None:
+                    token_counts[strategy][key].append(value)
 
     avg_metrics: Dict[str, Any] = {}
     for strategy, metrics in strategy_metrics.items():
@@ -87,6 +103,25 @@ def compute_average_metrics_for_strategies(samples: List[Dict[str, Any]], strate
                     "mean": sum(values) / len(values),
                     "count": len(values),
                 }
+        # Add token statistics
+        for key in TOKEN_COUNT_KEYS:
+            values = token_counts[strategy].get(key, [])
+            if values:
+                avg_metrics[strategy][f"avg_{key}_per_query"] = {
+                    "mean": sum(values) / len(values),
+                    "count": len(values),
+                }
+        # Compute total tokens (input + output)
+        input_vals = token_counts[strategy].get("input_tokens", [])
+        output_vals = token_counts[strategy].get("output_tokens", [])
+        if input_vals and output_vals and len(input_vals) == len(output_vals):
+            total_vals = [i + o for i, o in zip(input_vals, output_vals)]
+            if total_vals:
+                avg_metrics[strategy]["avg_total_tokens_per_query"] = {
+                    "mean": sum(total_vals) / len(total_vals),
+                    "count": len(total_vals),
+                }
+
     return avg_metrics
 
 
@@ -96,8 +131,10 @@ def compute_oracle_metrics(samples: List[Dict[str, Any]], strategies: List[str])
     strategy_distribution = defaultdict(int)
 
     # Metrics to compute for oracle
-    oracle_metric_keys = ["llm_judge_correct", "semantic_f1", "coverage", "faithfulness_hard", "faithfulness_soft"]
+    oracle_metric_keys = ["llm_judge_correct", "semantic_f1", "token_f1", "bleu1", "rouge1_f", "rouge2_f", "rougeL_f", "meteor", "coverage", "faithfulness_hard", "faithfulness_soft"]
+    oracle_token_keys = ["input_tokens", "output_tokens"]
     metric_accumulators = {key: [] for key in oracle_metric_keys}
+    token_accumulators = {key: [] for key in oracle_token_keys}
 
     for sample in samples:
         best_strategy = None
@@ -127,6 +164,20 @@ def compute_oracle_metrics(samples: List[Dict[str, Any]], strategies: List[str])
             record[f"best_{key}"] = val
             if val is not None:
                 metric_accumulators[key].append(val)
+        # Aggregate token counts
+        for key in oracle_token_keys:
+            val = best_metrics.get(key)
+            record[f"best_{key}"] = val
+            if val is not None:
+                token_accumulators[key].append(val)
+        # Compute total tokens for this oracle selection
+        input_tokens = best_metrics.get("input_tokens")
+        output_tokens = best_metrics.get("output_tokens")
+        if input_tokens is not None and output_tokens is not None:
+            total_tokens = input_tokens + output_tokens
+            record["best_total_tokens"] = total_tokens
+            token_accumulators["total_tokens"] = token_accumulators.get("total_tokens", [])
+            token_accumulators["total_tokens"].append(total_tokens)
         best_per_query.append(record)
 
     oracle_metrics = {}
@@ -136,6 +187,15 @@ def compute_oracle_metrics(samples: List[Dict[str, Any]], strategies: List[str])
                 "mean": sum(values) / len(values),
                 "count": len(values),
             }
+
+    # Add token statistics to oracle metrics
+    for key, values in token_accumulators.items():
+        if values:
+            oracle_metrics[f"avg_{key}_per_query"] = {
+                "mean": sum(values) / len(values),
+                "count": len(values),
+            }
+
     oracle_metrics["strategy_distribution"] = dict(strategy_distribution)
     oracle_metrics["priority_order"] = strategies  # Record the priority order used for tie-breaking
 

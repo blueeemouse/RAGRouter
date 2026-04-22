@@ -43,14 +43,17 @@ class LLMConfig:
     ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
     # LLAMA_BASE_URL = "http://localhost:8000/v1"
     # --- [Modified] Llama 3.1 8B on port 8001 for answering ---
-    LLAMA_BASE_URL = "http://localhost:8001/v1"
+    # LLAMA_BASE_URL = "http://localhost:8001/v1"
+    LLAMA_BASE_URL = "http://localhost:8003/v1"
     # --- [End Modified] ---
 
 
     # Generation Parameters
-    TEMPERATURE = 0.7                          # Randomness (0.0-2.0)
+    # TEMPERATURE = 0.7                          # Randomness (0.0-2.0)
+    TEMPERATURE = 0.0
     MAX_TOKENS = 1000                          # Maximum tokens in response
-    TOP_P = 0.9                                # Nucleus sampling
+    # TOP_P = 0.9                                # Nucleus sampling
+    TOP_P = 1.0
 
 
     # API Request Settings

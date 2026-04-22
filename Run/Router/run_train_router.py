@@ -20,6 +20,7 @@ from RouterCore.Datasets.RouterHardLabelDataset import (
     RouterHardLabelTextDataset,
 )
 from RouterCore.Models.FeatureRouterModel import FeatureRouterModel
+from RouterCore.Models.FeatureSemanticFusionRouterModel import FeatureSemanticFusionRouterModel
 from RouterCore.Models.TextRouterModel import TextRouterModel
 from RouterCore.RouterPathConfig import RouterPathConfig
 from RouterCore.Trainers.HardClassificationTrainer import HardClassificationTrainer
@@ -46,7 +47,7 @@ def parse_args() -> argparse.Namespace:
         "--model-type",
         type=str,
         default="text_router",
-        choices=["text_router", "feature_router"],
+        choices=["text_router", "feature_router", "feature_semantic_fusion_router"],
         help="Router model family to train",
     )
     parser.add_argument(
@@ -86,6 +87,39 @@ def parse_args() -> argparse.Namespace:
         help="Save per-query test predictions for later offline evaluation",
     )
     parser.add_argument("--dry-run", action="store_true", help="Construct the full training stack but do not train")
+    parser.add_argument(
+        "--class-weights",
+        type=float,
+        nargs="+",
+        default=None,
+        help="Optional per-class weights for cross-entropy loss (e.g. 1.0 1.0 1.0 1.0 1.0 1.0 0.8)",
+    )
+    # Fusion-specific arguments (for feature_semantic_fusion_router)
+    parser.add_argument(
+        "--fusion-type",
+        type=str,
+        default="concat",
+        choices=["concat", "gated"],
+        help="Fusion strategy: concat or gated (for feature_semantic_fusion_router)",
+    )
+    parser.add_argument(
+        "--semantic-backbone-name",
+        type=str,
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        help="Semantic encoder backbone for fusion model",
+    )
+    parser.add_argument(
+        "--semantic-embedding-dim",
+        type=int,
+        default=384,
+        help="Semantic embedding dimension (384 for MiniLM)",
+    )
+    parser.add_argument(
+        "--fusion-hidden-dim",
+        type=int,
+        default=512,
+        help="Hidden dimension for fusion classifier head",
+    )
     return parser.parse_args()
 
 
@@ -97,10 +131,17 @@ def build_config(args: argparse.Namespace) -> RouterConfig:
     config.model.hidden_state_feature_name = args.feature_name
     config.model.feature_pooling_type = args.feature_pooling_type
 
+    # Fusion-specific config
+    config.model.semantic_backbone_name = args.semantic_backbone_name
+    config.model.semantic_embedding_dim = args.semantic_embedding_dim
+    config.model.fusion_type = args.fusion_type
+    config.model.fusion_hidden_dim = args.fusion_hidden_dim
+
     config.training.trainer_type = "hard_classification"
     config.training.batch_size = args.batch_size
     config.training.learning_rate = args.learning_rate
     config.training.epochs = args.epochs
+    config.training.class_weights = args.class_weights
 
     config.data.dataset_name = args.dataset
     config.data.result_model = args.result_model
@@ -141,6 +182,23 @@ def build_dataloader(config: RouterConfig, args: argparse.Namespace, split: str,
             use_features=True,
             return_questions=False,
         )
+    elif config.model.model_type == "feature_semantic_fusion_router":
+        dataset = RouterHardLabelFeatureDataset(
+            dataset_name=config.data.dataset_name,
+            result_model=config.data.result_model,
+            split=split,
+            split_name=config.data.split_name,
+            label_name=config.data.hard_label_name,
+            feature_name=config.model.hidden_state_feature_name,
+            load_questions=True,
+        )
+        collator = RouterBatchCollator(
+            tokenizer=None,
+            max_length=config.model.max_length,
+            use_text=False,
+            use_features=True,
+            return_questions=True,
+        )
     else:
         raise ValueError(f"Unsupported model_type: {config.model.model_type}")
 
@@ -168,6 +226,8 @@ def build_training_stack(config: RouterConfig, args: argparse.Namespace):
         model = TextRouterModel(config)
     elif config.model.model_type == "feature_router":
         model = FeatureRouterModel(config)
+    elif config.model.model_type == "feature_semantic_fusion_router":
+        model = FeatureSemanticFusionRouterModel(config)
     else:
         raise ValueError(f"Unsupported model_type: {config.model.model_type}")
 
@@ -216,6 +276,11 @@ def save_training_artifacts(
             "num_hidden_layers_used": config.model.num_hidden_layers_used,
             "feature_hidden_dim": config.model.feature_hidden_dim,
             "feature_mlp_hidden_dim": config.model.feature_mlp_hidden_dim,
+            # Fusion-specific config
+            "semantic_backbone_name": config.model.semantic_backbone_name,
+            "semantic_embedding_dim": config.model.semantic_embedding_dim,
+            "fusion_type": config.model.fusion_type,
+            "fusion_hidden_dim": config.model.fusion_hidden_dim,
         },
         "training": {
             "trainer_type": config.training.trainer_type,

@@ -47,6 +47,10 @@ def main():
     parser.add_argument("--no-resume", action="store_true", help="Don't resume from existing results")
     parser.add_argument("--skip-llm", action="store_true", help="Skip LLM-based evaluation (faster)")
     parser.add_argument("--max-concurrent", type=int, default=10, help="Max concurrent LLM calls (default: 10)")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Optional max number of questions to evaluate (for quick validation)")
+    parser.add_argument("--save-name", type=str, default=None,
+                        help="Optional output filename stem (without .json) to avoid overwriting default result file")
     parser.add_argument("--result-model", type=str, default=None,
                         help="Model name for loading results (e.g., llama-3.1-8b-awq). If not specified, uses current LLM config.")
     args = parser.parse_args()
@@ -74,6 +78,8 @@ def main():
     print(f"Resume: {not args.no_resume}")
     print(f"Skip LLM: {args.skip_llm}")
     print(f"Max Concurrent: {args.max_concurrent}")
+    print(f"Limit: {args.limit}")
+    print(f"Save Name: {args.save_name}")
     print("=" * 60)
 
     # Run evaluation
@@ -85,13 +91,19 @@ def main():
         retriever_type=args.retriever_type,
         resume=not args.no_resume,
         skip_llm=args.skip_llm,
-        max_concurrent=args.max_concurrent
+        max_concurrent=args.max_concurrent,
+        limit=args.limit,
+        save_name=args.save_name
     )
 
     # Print output path
     if results:
-        retriever_type = args.retriever_type if args.method == "iterative_rag" else None
-        output_path = PathConfig.get_result_eval_path(result_model, args.dataset, args.method, retriever_type)
+        if args.save_name:
+            eval_dir = os.path.join(PathConfig.RESULT_EVAL_DIR, result_model, args.dataset)
+            output_path = os.path.join(eval_dir, f"{args.save_name}.json")
+        else:
+            retriever_type = args.retriever_type if args.method == "iterative_rag" else None
+            output_path = PathConfig.get_result_eval_path(result_model, args.dataset, args.method, retriever_type)
         print(f"\nResults saved to: {output_path}")
 
 

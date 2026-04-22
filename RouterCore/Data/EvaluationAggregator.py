@@ -162,9 +162,17 @@ class EvaluationAggregator:
             "llm_reason": evaluation_record.get("llm_reason"),
             "llm_judge_correct": 1 if llm_label == "correct" else 0 if llm_label is not None else None,
             "semantic_f1": evaluation_record.get("semantic_f1"),
+            "token_f1": evaluation_record.get("token_f1"),
+            "bleu1": evaluation_record.get("bleu1"),
+            "rouge1_f": evaluation_record.get("rouge1_f"),
+            "rouge2_f": evaluation_record.get("rouge2_f"),
+            "rougeL_f": evaluation_record.get("rougeL_f"),
+            "meteor": evaluation_record.get("meteor"),
             "coverage": evaluation_record.get("coverage"),
             "faithfulness_hard": evaluation_record.get("faithfulness_hard"),
             "faithfulness_soft": evaluation_record.get("faithfulness_soft"),
+            "input_tokens": evaluation_record.get("input_tokens"),
+            "output_tokens": evaluation_record.get("output_tokens"),
         }
 
     def save(self, aggregated: Dict[str, Any], dataset_name: str, result_model: str) -> Path:

@@ -18,6 +18,16 @@ from .base_trainer import BaseTrainer
 class HardClassificationTrainer(BaseTrainer):
     """Train router models with hard-label classification supervision."""
 
+    def __init__(self, model, config, device: str | None = None):
+        super().__init__(model, config, device)
+        # Build class weight tensor if specified
+        self._class_weight_tensor = None
+        class_weights = getattr(self.config.training, "class_weights", None)
+        if class_weights is not None and len(class_weights) > 0:
+            self._class_weight_tensor = torch.tensor(
+                class_weights, dtype=torch.float32, device=self.device
+            )
+
     def compute_loss(self, batch, outputs) -> torch.Tensor:
         """Compute hard-label classification loss from logits and labels."""
         logits = outputs.get("logits")
@@ -28,7 +38,7 @@ class HardClassificationTrainer(BaseTrainer):
         if labels is None:
             raise KeyError("HardClassificationTrainer requires batch['labels']")
 
-        return F.cross_entropy(logits, labels)
+        return F.cross_entropy(logits, labels, weight=self._class_weight_tensor)
 
     def evaluate(self, dataloader, return_predictions: bool = False) -> Dict[str, Any]:
         """Run evaluation and optionally return per-query predictions.

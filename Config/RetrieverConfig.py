@@ -37,7 +37,8 @@ class RetrieverConfig:
     # LLM for RAG (Answer Generation)
     # Note: Uses LLMConfig.PROVIDER and model settings
     # This section is for RAG-specific LLM parameters
-    RAG_TEMPERATURE = 0.3                       # Lower temperature for more focused answers
+    # RAG_TEMPERATURE = 0.3                       # Lower temperature for more focused answers
+    RAG_TEMPERATURE = 0.0
     RAG_MAX_TOKENS = 1000                        # Maximum tokens for RAG answers
     RAG_TIMEOUT = 120                            # Request timeout in seconds
 

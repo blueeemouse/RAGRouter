@@ -91,9 +91,17 @@ def build_empty_method_metrics() -> Dict[str, Dict[str, Any]]:
             "llm_reason": None,
             "llm_judge_correct": None,
             "semantic_f1": None,
+            "token_f1": None,
+            "bleu1": None,
+            "rouge1_f": None,
+            "rouge2_f": None,
+            "rougeL_f": None,
+            "meteor": None,
             "coverage": None,
             "faithfulness_hard": None,
             "faithfulness_soft": None,
+            "input_tokens": None,
+            "output_tokens": None,
         }
         for strategy in STRATEGY_NAMES
     }

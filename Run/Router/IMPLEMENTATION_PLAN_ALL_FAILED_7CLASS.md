@@ -210,3 +210,173 @@ python Run/Router/run_build_router_split.py \
 2. v2 7类流程可完整 dry-run + train + eval。
 3. 预测文件中 `predicted_index` 与 `predicted_strategy` 一致。
 4. offline eval 在出现 `all_failed` 预测时不崩溃，并有 abstain 统计。
+
+---
+
+## 8. 评估口径更新（all_failed：性能=0，检索类指标=None）
+
+### 8.1 背景与目标
+
+`all_failed` 本质是“拒答/不调用RAG”的动作。离线评估上应体现两点：
+- 拒答在回答质量上有代价（记 0 分）；
+- 检索相关指标在未调用RAG时不适用（记 None）。
+
+### 8.2 指标口径（必须统一）
+
+当 `predicted_strategy == "all_failed"` 时：
+
+- `llm_judge_correct = 0.0`
+- `semantic_f1 = 0.0`
+- `coverage = None`
+- `faithfulness_hard = None`
+- `faithfulness_soft = None`
+- `is_abstain = true`
+- `action = "abstain"`
+
+解释：
+- 质量类指标（correct/f1）按 0 进入全量评估，体现拒答机会成本；
+- 检索类指标（coverage/faithfulness）不适用，不参与均值。
+
+### 8.3 统计规则
+
+主报告指标：`router_performance`（全量口径）
+- `llm_judge_correct` / `semantic_f1`：abstain 样本按 0.0 参与均值；
+- `coverage` / `faithfulness_*`：abstain 样本为 None，不参与均值。
+
+同时保留：
+- `abstain_count`
+- `abstain_rate`
+- `num_routed`
+- `num_total`
+
+可选诊断：`router_performance_non_abstain`
+- 仅用于看“被回答子集”的质量；
+- 主结论仍应以 `router_performance` 为准。
+
+### 8.4 代码改动点
+
+**文件**：`Run/Router/run_collect_rag_baseline.py`  
+**函数**：`compute_router_metrics_from_predictions(...)`
+
+需要保证 abstain 分支行为：
+1. 对 `llm_judge_correct`、`semantic_f1` 赋 `0.0`；
+2. 这两个值进入 `metric_values` 的累计；
+3. 对 `coverage`、`faithfulness_hard`、`faithfulness_soft` 赋 `None`；
+4. 这三个值不进入均值累计；
+5. routed record 写入 `is_abstain/action`。
+
+### 8.5 验收标准
+
+1. `per_query_routed` 中 abstain 样本：
+   - `llm_judge_correct`、`semantic_f1` 为 `0.0`；
+   - `coverage`、`faithfulness_hard`、`faithfulness_soft` 为 `null`。
+2. `router_performance` 中：
+   - `llm_judge_correct.count` 与 `semantic_f1.count` 应接近 `num_total`（除非存在其他缺失样本）；
+   - `coverage/faithfulness` 的 count 应小于等于 `num_routed`。
+3. `abstain_rate` 计算正确，且 `num_routed + abstain_count == num_total`。
+4. 与旧口径相比，出现 abstain 时全量 quality 均值会下降（符合“拒答有代价”预期）。
+
+---
+
+## 9. 七分类训练与评估执行步骤（可直接运行）
+
+### 9.1 构建 7 类标签与 split
+
+```bash
+python /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Run/Router/run_build_router_labels.py \
+  --dataset musique \
+  --result-model llama-3.1-8b-awq-int4 \
+  --label-type hard \
+  --label-name hard_llm_correct_rule_v2_all_failed_class
+```
+
+```bash
+python /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Run/Router/run_build_router_split.py \
+  --dataset musique \
+  --result-model llama-3.1-8b-awq-int4 \
+  --label-name hard_llm_correct_rule_v2_all_failed_class \
+  --split-name split_v2_all_failed_class
+```
+
+---
+
+### 9.2 训练 7 类 text router（保存预测）
+
+```bash
+CUDA_VISIBLE_DEVICES=3 python /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Run/Router/run_train_router.py \
+  --dataset musique \
+  --result-model llama-3.1-8b-awq-int4 \
+  --model-type text_router \
+  --backbone-name sentence-transformers/all-MiniLM-L6-v2 \
+  --label-name hard_llm_correct_rule_v2_all_failed_class \
+  --split-name split_v2_all_failed_class \
+  --batch-size 64 \
+  --learning-rate 1e-4 \
+  --epochs 10 \
+  --save-name text_router_7cls_v1_bs64 \
+  --save-predictions
+```
+
+---
+
+### 9.3 训练 7 类 feature router（保存预测）
+
+```bash
+CUDA_VISIBLE_DEVICES=3 python /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Run/Router/run_train_router.py \
+  --dataset musique \
+  --result-model llama-3.1-8b-awq-int4 \
+  --model-type feature_router \
+  --feature-name mean_hidden \
+  --feature-pooling-type layer_mean \
+  --label-name hard_llm_correct_rule_v2_all_failed_class \
+  --split-name split_v2_all_failed_class \
+  --batch-size 128 \
+  --learning-rate 1e-4 \
+  --epochs 10 \
+  --save-name feature_router_7cls_mean_hidden_layer_mean_v1_bs128 \
+  --save-predictions
+```
+
+---
+
+### 9.4 基于预测文件计算 7 类离线 routed performance
+
+#### text router
+```bash
+python /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Run/Router/run_collect_rag_baseline.py \
+  --dataset musique \
+  --result-model llama-3.1-8b-awq-int4 \
+  --split-name split_v2_all_failed_class \
+  --prediction-file /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Dataset/RouterTrainingData/Evaluation/text_router_7cls_v1_bs64/musique/musique_test_predictions.json
+```
+
+#### feature router
+```bash
+python /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Run/Router/run_collect_rag_baseline.py \
+  --dataset musique \
+  --result-model llama-3.1-8b-awq-int4 \
+  --split-name split_v2_all_failed_class \
+  --prediction-file /home/lhz/code/RAGRouter-b-feat-router-migration-phase1/Dataset/RouterTrainingData/Evaluation/feature_router_7cls_mean_hidden_layer_mean_v1_bs128/musique/musique_test_predictions.json
+```
+
+---
+
+### 9.5 结果解读口径（必须按第8节）
+
+优先看：
+1. `router_performance.llm_judge_correct`（全量，abstain=0）
+2. `router_performance.semantic_f1`（全量，abstain=0）
+3. `abstain_rate`
+4. `coverage / faithfulness_*`（abstain=None，不参与均值）
+
+---
+
+### 9.6 横向比较建议
+
+至少比较四组：
+- 6类 text vs 7类 text
+- 6类 feature vs 7类 feature
+
+并判断：
+- abstain_rate 是否换来了可接受的质量代价；
+- 在主目标（端到端 routed 性能）上是否值得保留 7 类路线。

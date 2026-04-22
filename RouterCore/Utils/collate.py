@@ -79,6 +79,11 @@ class RouterBatchCollator:
                     print(f"  id={sample['id']} shape={tuple(feature.shape)}")
                 raise
 
+            # Also return questions for fusion models if available
+            if self.return_questions and "questions" not in collated:
+                questions = [sample.get("question", "") for sample in batch]
+                collated["questions"] = questions
+
         return collated
 
 

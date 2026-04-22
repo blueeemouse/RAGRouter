@@ -27,6 +27,12 @@ class RouterModelConfig:
     feature_mlp_hidden_dim: int = 1024
     feature_projection_dim: int = 256
 
+    # Fusion-specific config (for feature_semantic_fusion_router)
+    semantic_backbone_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    semantic_embedding_dim: int = 384
+    fusion_type: str = "concat"  # "concat" or "gated"
+    fusion_hidden_dim: int = 512
+
 
 @dataclass
 class RouterTrainingConfig:
@@ -34,6 +40,7 @@ class RouterTrainingConfig:
     batch_size: int = 8
     learning_rate: float = 1.0e-4
     epochs: int = 1
+    class_weights: Optional[List[float]] = None
 
 
 @dataclass
