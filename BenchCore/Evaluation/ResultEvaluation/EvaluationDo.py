@@ -616,6 +616,7 @@ class ResultEvaluator:
                 model=self.model_name,
                 messages=messages,
                 temperature=0.0,
+                seed=42,
                 max_tokens=150
             )
             content = response.choices[0].message.content.strip()
@@ -658,6 +659,7 @@ class ResultEvaluator:
                 model=self.model_name,
                 messages=messages,
                 temperature=0.0,
+                seed=42,
                 max_tokens=150
             )
             content = response.choices[0].message.content.strip()
