@@ -7,14 +7,14 @@
 ## 快速开始
 
 ```bash
-# 完整流程（从评估开始，跳过 Step 1）
+# 完整流程（Step 1-8）
 ./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5
 
-# 跳过评估，从聚合开始
-./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-eval
+# 跳过 Step 1/2，从聚合开始
+./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-retrieve --skip-eval
 
 # 同时训练 text 和 feature router
-./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-eval --train-feat
+./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-retrieve --skip-eval --train-feat
 
 # 从指定步骤开始
 ./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --start-step 5
@@ -26,6 +26,7 @@
 
 ```
 scripts/
+├── step1_retrieve.sh   # 执行 RAG 收集原始回答
 ├── step2_eval.sh       # 评估 RAG 答案
 ├── step3_aggregate.sh  # 聚合评估数据
 ├── step4_filter.sh     # 过滤 all-failed 样本
@@ -78,23 +79,20 @@ Dataset/
 
 运行各种 RAG 方法，生成 `answer.jsonl` 文件。
 
-### 脚本
+### 命令（RAGRouter-Bench 风格）
 
 ```bash
 # LLM Direct (无检索)
-python Run/Retrieval/run_llm_direct.py \
-    --dataset musique \
-    --model-name llama-3.1-8b-awq-int4
+python main.py retrieve llm_direct --dataset musique
 
 # Naive RAG (向量检索)
-python Run/Retrieval/run_naive_rag.py \
-    --dataset musique \
-    --model-name llama-3.1-8b-awq-int4
+python main.py retrieve naive --dataset musique
 
 # Graph RAG (图检索)
-python Run/Retrieval/run_graph_rag.py \
-    --dataset musique \
-    --model-name llama-3.1-8b-awq-int4
+python main.py retrieve graph --dataset musique
+
+# 指定 GPU 示例
+CUDA_VISIBLE_DEVICES=3 python main.py retrieve llm_direct --dataset graphragBench_medical
 ```
 
 ### 输出
@@ -143,24 +141,24 @@ python Run/HiddenStates/run_extract_hidden_states.py \
 
 对每个方法的答案进行多维度评估。
 
-### 脚本
+### 命令（RAGRouter-Bench 风格）
 
 ```bash
 # 评估单个方法
-python Run/Evaluation/run_result_eval.py \
+python main.py evaluate result \
     --dataset musique \
-    --method llm_direct \
-    --result-model llama-3.1-8b-awq-int4
+    --method llm_direct
 
-python Run/Evaluation/run_result_eval.py \
+python main.py evaluate result \
     --dataset musique \
-    --method naive_rag \
-    --result-model llama-3.1-8b-awq-int4
+    --method naive_rag
 
-python Run/Evaluation/run_result_eval.py \
+python main.py evaluate result \
     --dataset musique \
-    --method graph_rag \
-    --result-model llama-3.1-8b-awq-int4
+    --method graph_rag
+
+# 指定 GPU 示例
+CUDA_VISIBLE_DEVICES=3 python main.py evaluate result --dataset musique --method graph_rag
 ```
 
 ### 输出
@@ -486,14 +484,14 @@ python Run/Router/run_comprehensive_router_eval.py \
 
 ```bash
 # === Step 1: 执行 RAG ===
-python Run/Retrieval/run_llm_direct.py --dataset musique --model-name llama-3.1-8b-awq-int4
-python Run/Retrieval/run_naive_rag.py --dataset musique --model-name llama-3.1-8b-awq-int4
-python Run/Retrieval/run_graph_rag.py --dataset musique --model-name llama-3.1-8b-awq-int4
+python main.py retrieve llm_direct --dataset musique
+python main.py retrieve naive --dataset musique
+python main.py retrieve graph --dataset musique
 
 # === Step 2: 评估 ===
-python Run/Evaluation/run_result_eval.py --dataset musique --method llm_direct --result-model llama-3.1-8b-awq-int4
-python Run/Evaluation/run_result_eval.py --dataset musique --method naive_rag --result-model llama-3.1-8b-awq-int4
-python Run/Evaluation/run_result_eval.py --dataset musique --method graph_rag --result-model llama-3.1-8b-awq-int4
+python main.py evaluate result --dataset musique --method llm_direct
+python main.py evaluate result --dataset musique --method naive_rag
+python main.py evaluate result --dataset musique --method graph_rag
 
 # === Step 3: 聚合 ===
 python Run/Router/run_aggregate_router_data_with_tokens.py \
@@ -549,16 +547,29 @@ python Run/Router/run_comprehensive_router_eval.py \
 
 ## 各脚本详细说明
 
+### step1_retrieve.sh - 收集原始回答
+
+```bash
+./scripts/step1_retrieve.sh <dataset> [result_model] [device]
+
+# 示例
+./scripts/step1_retrieve.sh musique llama-3.1-8b-awq-int4 3
+```
+
+调用 `main.py retrieve`，依次执行 `llm_direct`、`naive`、`graph` 三种检索策略。
+
+---
+
 ### step2_eval.sh - 评估 RAG 答案
 
 ```bash
-./scripts/step2_eval.sh <dataset> <result_model>
+./scripts/step2_eval.sh <dataset> [result_model] [device]
 
 # 示例
-./scripts/step2_eval.sh musique llama-3.1-8b-awq-int4
+./scripts/step2_eval.sh musique llama-3.1-8b-awq-int4 3
 ```
 
-评估 llm_direct, naive_rag, graph_rag 三种方法的答案质量。
+调用 `main.py evaluate result`，评估 llm_direct、naive_rag、graph_rag 三种方法。
 
 ---
 
@@ -672,11 +683,11 @@ python Run/Router/run_comprehensive_router_eval.py \
 # 完整流程
 ./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5
 
-# 跳过评估
-./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-eval
+# 跳过 Step 1/2
+./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-retrieve --skip-eval
 
 # 训练 feature router
-./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-eval --train-feat
+./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --skip-retrieve --skip-eval --train-feat
 
 # 从指定步骤开始
 ./scripts/run_all.sh musique llama-3.1-8b-awq-int4 v5 --start-step 5
@@ -699,8 +710,7 @@ python Run/Router/run_comprehensive_router_eval.py \
 
 目前缺失的脚本：
 
-1. ~~**`run_filter_all_failed.py`** - 过滤所有方法都失败的样本~~ ✅ 已创建
-2. **Hidden states 提取** - 如果需要 feature_router，需要从 temperature=0 的数据重新提取
+1. **Hidden states 提取** - 如果需要 feature_router，需要从 temperature=0 的数据重新提取
    - 现有的 hidden states 在 `Dataset/HiddenStates/{dataset}/{model}/`
    - 这些是之前 temperature≠0 时提取的
    - 需要用 temperature=0 的 answer.jsonl 重新提取

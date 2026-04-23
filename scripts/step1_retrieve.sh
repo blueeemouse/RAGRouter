@@ -1,6 +1,6 @@
 #!/bin/bash
-# Step 2: Evaluate RAG Answers
-# Usage: ./scripts/step2_eval.sh <dataset> [result_model] [device]
+# Step 1: Collect raw RAG answers (RAGRouter-Bench style)
+# Usage: ./scripts/step1_retrieve.sh <dataset> [result_model] [device]
 
 set -e
 
@@ -13,28 +13,25 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 echo "============================================================"
-echo "Step 2: Evaluation"
+echo "Step 1: Retrieval (Collect Raw Answers)"
 echo "============================================================"
 echo "Dataset: $DATASET"
-echo "Result Model: $RESULT_MODEL"
+echo "Result Model (info): $RESULT_MODEL"
 echo "Device: ${DEVICE:-auto}"
 echo "Note: actual model is controlled by Config/LLMConfig.py"
 echo ""
 
-STRATEGIES=("llm_direct" "naive_rag" "graph_rag")
+# Use RAGRouter-Bench style retrieve commands
+STRATEGIES=("llm_direct" "naive" "graph")
 
 for strategy in "${STRATEGIES[@]}"; do
-    echo "Evaluating $strategy..."
+    echo "Running retrieve: $strategy ..."
     if [ -n "$DEVICE" ]; then
-        CUDA_VISIBLE_DEVICES="$DEVICE" python main.py evaluate result \
-            --dataset "$DATASET" \
-            --method "$strategy"
+        CUDA_VISIBLE_DEVICES="$DEVICE" python main.py retrieve "$strategy" --dataset "$DATASET"
     else
-        python main.py evaluate result \
-            --dataset "$DATASET" \
-            --method "$strategy"
+        python main.py retrieve "$strategy" --dataset "$DATASET"
     fi
     echo ""
 done
 
-echo "Step 2 completed!"
+echo "Step 1 completed!"

@@ -3,8 +3,9 @@
 # Usage: ./scripts/run_all.sh <dataset> <result_model> <version> [options]
 #
 # Options:
+#   --skip-retrieve    Skip Step 1 (retrieval)
 #   --skip-eval        Skip Step 2 (evaluation)
-#   --start-step N     Start from step N (default: 2)
+#   --start-step N     Start from step N (default: 1)
 #   --train-feat       Also train feature routers
 #   --device DEVICE    Specify device
 
@@ -18,7 +19,8 @@ shift 3 2>/dev/null || true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default settings
-START_STEP=2
+START_STEP=1
+SKIP_RETRIEVE=false
 SKIP_EVAL=false
 TRAIN_FEAT=false
 DEVICE=""
@@ -26,6 +28,7 @@ DEVICE=""
 # Parse options
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --skip-retrieve) SKIP_RETRIEVE=true; START_STEP=2; shift ;;
         --skip-eval) SKIP_EVAL=true; START_STEP=3; shift ;;
         --start-step) START_STEP="$2"; shift 2 ;;
         --train-feat) TRAIN_FEAT=true; shift ;;
@@ -41,6 +44,8 @@ echo "Dataset: $DATASET"
 echo "Result Model: $RESULT_MODEL"
 echo "Version: $VERSION"
 echo "Start Step: $START_STEP"
+echo "Skip Retrieve: $SKIP_RETRIEVE"
+echo "Skip Eval: $SKIP_EVAL"
 echo "Train Feature: $TRAIN_FEAT"
 echo "Device: ${DEVICE:-auto}"
 echo ""
@@ -57,9 +62,14 @@ if [ -n "$DEVICE" ]; then
     EVAL_ARGS="$EVAL_ARGS --device $DEVICE"
 fi
 
+# Step 1: Retrieval
+if [ $START_STEP -le 1 ] && [ "$SKIP_RETRIEVE" = false ]; then
+    "$SCRIPT_DIR/step1_retrieve.sh" "$DATASET" "$RESULT_MODEL" "$DEVICE"
+fi
+
 # Step 2: Evaluation
 if [ $START_STEP -le 2 ] && [ "$SKIP_EVAL" = false ]; then
-    "$SCRIPT_DIR/step2_eval.sh" "$DATASET" "$RESULT_MODEL"
+    "$SCRIPT_DIR/step2_eval.sh" "$DATASET" "$RESULT_MODEL" "$DEVICE"
 fi
 
 # Step 3: Aggregation
