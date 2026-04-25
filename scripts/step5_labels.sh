@@ -4,7 +4,7 @@
 
 set -e
 
-DATASET=${1:-"musique"}
+DATASET=${1:-"quality"}
 RESULT_MODEL=${2:-"llama-3.1-8b-awq-int4"}
 VERSION=${3:-"v5"}
 
@@ -12,8 +12,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
-AGGREGATED_NAME="query_metrics_${VERSION}_filtered"
-LABEL_NAME="hard_llm_correct_rule_${VERSION}"
+# AGGREGATED_NAME="query_metrics_${VERSION}_filtered"
+AGGREGATED_NAME="query_metrics_filtered"
+# LABEL_NAME="hard_llm_correct_rule_${VERSION}"
+LABEL_NAME="hard_llm_correct_rule"
 
 echo "============================================================"
 echo "Step 5: Label Building"

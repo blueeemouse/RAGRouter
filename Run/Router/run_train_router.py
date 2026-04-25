@@ -44,6 +44,12 @@ def parse_args() -> argparse.Namespace:
         help="Hard-label file name prefix",
     )
     parser.add_argument(
+        "--aggregated-name",
+        type=str,
+        default="query_metrics_v1",
+        help="Aggregated metrics file name prefix (without .json)",
+    )
+    parser.add_argument(
         "--model-type",
         type=str,
         default="text_router",
@@ -75,6 +81,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-length", type=int, default=512, help="Tokenizer max sequence length")
     parser.add_argument("--device", type=str, default=None, help="Optional explicit device, e.g. cuda or cpu")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader worker count")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument(
         "--save-name",
         type=str,
@@ -158,6 +165,7 @@ def build_dataloader(config: RouterConfig, args: argparse.Namespace, split: str,
             split=split,
             split_name=config.data.split_name,
             label_name=config.data.hard_label_name,
+            aggregated_name=args.aggregated_name,
         )
         collator = RouterBatchCollator(
             tokenizer=tokenizer,
@@ -174,6 +182,7 @@ def build_dataloader(config: RouterConfig, args: argparse.Namespace, split: str,
             split_name=config.data.split_name,
             label_name=config.data.hard_label_name,
             feature_name=config.model.hidden_state_feature_name,
+            aggregated_name=args.aggregated_name,
         )
         collator = RouterBatchCollator(
             tokenizer=None,
@@ -191,6 +200,7 @@ def build_dataloader(config: RouterConfig, args: argparse.Namespace, split: str,
             label_name=config.data.hard_label_name,
             feature_name=config.model.hidden_state_feature_name,
             load_questions=True,
+            aggregated_name=args.aggregated_name,
         )
         collator = RouterBatchCollator(
             tokenizer=None,
@@ -252,6 +262,11 @@ def save_training_artifacts(
     train_metrics: dict,
     test_metrics: dict,
     test_predictions: list | None = None,
+    aggregated_name: str = "query_metrics_v1",
+    seed: int = 42,
+    class_weights: list | None = None,
+    num_workers: int = 0,
+    device: str | None = None,
 ) -> Path:
     """Save minimal model/config/metrics artifacts for the current training run."""
     output_dir = RouterPathConfig.get_model_dir(save_name, config.data.dataset_name)
@@ -287,12 +302,17 @@ def save_training_artifacts(
             "batch_size": config.training.batch_size,
             "learning_rate": config.training.learning_rate,
             "epochs": config.training.epochs,
+            "seed": seed,
+            "class_weights": class_weights,
+            "num_workers": num_workers,
+            "device": device,
         },
         "data": {
             "dataset_name": config.data.dataset_name,
             "result_model": config.data.result_model,
             "split_name": config.data.split_name,
             "hard_label_name": config.data.hard_label_name,
+            "aggregated_name": aggregated_name,
         },
     }
     with config_path.open("w", encoding="utf-8") as f:
@@ -331,8 +351,23 @@ def save_training_artifacts(
     return output_dir
 
 
+def set_seed(seed: int):
+    """Set random seed for reproducibility."""
+    import random
+    import numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
 def main() -> int:
     args = parse_args()
+    set_seed(args.seed)
+
     config = build_config(args)
     stack = build_training_stack(config, args)
 
@@ -375,6 +410,11 @@ def main() -> int:
         train_metrics=train_metrics,
         test_metrics=test_eval,
         test_predictions=test_predictions,
+        aggregated_name=args.aggregated_name,
+        seed=args.seed,
+        class_weights=args.class_weights,
+        num_workers=args.num_workers,
+        device=args.device,
     )
 
     print("training finished")

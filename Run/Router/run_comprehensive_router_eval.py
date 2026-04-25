@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -94,8 +95,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--aggregated-name",
         type=str,
-        default="query_metrics_v1.json",
-        help="Aggregated metrics file name (default: query_metrics_v1.json)",
+        default="query_metrics_v1",
+        help="Aggregated metrics file name prefix, without .json (default: query_metrics_v1)",
+    )
+    parser.add_argument(
+        "--register-summary",
+        action="store_true",
+        help="Append current result to summary registry JSON",
+    )
+    parser.add_argument(
+        "--summary-path",
+        type=str,
+        default=None,
+        help="Path to summary registry JSON (default: Dataset/RouterTrainingData/Evaluation/summary_registry.json)",
+    )
+    parser.add_argument(
+        "--experiment-id",
+        type=str,
+        default=None,
+        help="Stable experiment id used in summary registry",
+    )
+    parser.add_argument(
+        "--tags",
+        type=str,
+        default="",
+        help="Comma-separated tags for summary registry",
+    )
+    parser.add_argument(
+        "--official",
+        action="store_true",
+        help="Mark this run as official in summary registry",
     )
     return parser.parse_args()
 
@@ -161,6 +190,7 @@ def build_dataloader(config: RouterConfig, args: argparse.Namespace, split: str,
             split=split,
             split_name=config.data.split_name,
             label_name=config.data.hard_label_name,
+            aggregated_name=args.aggregated_name,
         )
         collator = RouterBatchCollator(
             tokenizer=tokenizer,
@@ -177,6 +207,7 @@ def build_dataloader(config: RouterConfig, args: argparse.Namespace, split: str,
             split_name=config.data.split_name,
             label_name=config.data.hard_label_name,
             feature_name=config.model.hidden_state_feature_name,
+            aggregated_name=args.aggregated_name,
         )
         collator = RouterBatchCollator(
             tokenizer=None,
@@ -230,9 +261,12 @@ def run_inference(model, dataloader, device: str) -> tuple:
     return all_predictions, all_labels, all_ids
 
 
-def load_aggregated_metrics(dataset_name: str, result_model: str, aggregated_name: str = "query_metrics_v1.json") -> Dict[str, Any]:
+def load_aggregated_metrics(dataset_name: str, result_model: str, aggregated_name: str = "query_metrics_v1") -> Dict[str, Any]:
     """Load aggregated metrics with token information."""
     aggregated_dir = RouterPathConfig.get_aggregated_dir(dataset_name, result_model)
+    # Add .json suffix if not present
+    if not aggregated_name.endswith(".json"):
+        aggregated_name = f"{aggregated_name}.json"
     aggregated_path = aggregated_dir / aggregated_name
     with aggregated_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
@@ -255,6 +289,178 @@ METRIC_NAMES = [
     "input_tokens",
     "output_tokens",
 ]
+
+
+def _safe_div(numerator: float, denominator: float) -> float:
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
+
+
+def compute_classification_diagnostics(
+    predictions: List[int],
+    labels: List[int],
+    strategy_names: List[str],
+) -> Dict[str, Any]:
+    """Compute per-class diagnostics and confusion matrix."""
+    num_classes = len(strategy_names)
+    cm = [[0 for _ in range(num_classes)] for _ in range(num_classes)]
+
+    for pred, label in zip(predictions, labels):
+        if 0 <= label < num_classes and 0 <= pred < num_classes:
+            cm[label][pred] += 1
+
+    per_class = {}
+    recalls = []
+    precisions = []
+    f1s = []
+    supports = []
+
+    total = sum(sum(row) for row in cm)
+    weighted_f1_sum = 0.0
+
+    for idx, strategy in enumerate(strategy_names):
+        tp = cm[idx][idx]
+        support = sum(cm[idx])
+        pred_count = sum(cm[r][idx] for r in range(num_classes))
+
+        recall = _safe_div(tp, support)
+        precision = _safe_div(tp, pred_count)
+        f1 = _safe_div(2.0 * precision * recall, precision + recall) if (precision + recall) > 0 else 0.0
+
+        per_class[strategy] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "support": support,
+            "tp": tp,
+            "pred_count": pred_count,
+        }
+
+        recalls.append(recall)
+        precisions.append(precision)
+        f1s.append(f1)
+        supports.append(support)
+        weighted_f1_sum += f1 * support
+
+    macro_recall = sum(recalls) / num_classes if num_classes > 0 else 0.0
+    macro_precision = sum(precisions) / num_classes if num_classes > 0 else 0.0
+    macro_f1 = sum(f1s) / num_classes if num_classes > 0 else 0.0
+    weighted_f1 = _safe_div(weighted_f1_sum, total)
+
+    cm_true_norm = []
+    for i in range(num_classes):
+        row_sum = sum(cm[i])
+        cm_true_norm.append([_safe_div(cm[i][j], row_sum) for j in range(num_classes)])
+
+    cm_pred_norm = []
+    for i in range(num_classes):
+        col_sum = sum(cm[r][i] for r in range(num_classes))
+        cm_pred_norm.append([_safe_div(cm[j][i], col_sum) for j in range(num_classes)])
+
+    per_class_recall = {s: per_class[s]["recall"] for s in strategy_names}
+
+    return {
+        "classification_report": {
+            "per_class": per_class,
+            "macro_precision": macro_precision,
+            "macro_recall": macro_recall,
+            "macro_f1": macro_f1,
+            "weighted_f1": weighted_f1,
+            "balanced_accuracy": macro_recall,
+            "total_samples": total,
+        },
+        "per_class_recall": per_class_recall,
+        "confusion_matrix": {
+            "labels": strategy_names,
+            "counts": cm,
+            "true_normalized": cm_true_norm,
+            "pred_normalized": cm_pred_norm,
+        },
+    }
+
+
+def register_summary(
+    args: argparse.Namespace,
+    result: Dict[str, Any],
+    eval_path: Path,
+) -> Path:
+    """Append concise run summary into JSON registry."""
+    if args.summary_path:
+        summary_path = Path(args.summary_path)
+    else:
+        summary_path = RouterPathConfig.EVALUATION_DIR / "summary_registry.json"
+
+    RouterPathConfig.ensure_parent(summary_path)
+
+    if summary_path.exists():
+        with summary_path.open("r", encoding="utf-8") as f:
+            registry = json.load(f)
+    else:
+        registry = {"metadata": {}, "records": []}
+
+    if "records" not in registry or not isinstance(registry["records"], list):
+        registry["records"] = []
+
+    exp_id = args.experiment_id or f"{args.model_name}:{args.dataset}:{args.split_name}:{args.label_name}:{args.aggregated_name}"
+    tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+
+    router_perf = result.get("router_performance", {})
+    cls = result.get("classification_diagnostics", {}).get("classification_report", {})
+    recalls = result.get("classification_diagnostics", {}).get("per_class_recall", {})
+    comparison = result.get("comparison", {}).get("router_vs_best_baseline", {})
+
+    record = {
+        "experiment_id": exp_id,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "dataset": args.dataset,
+        "result_model": args.result_model,
+        "model_name": args.model_name,
+        "model_type": result.get("metadata", {}).get("model_type"),
+        "split_name": args.split_name,
+        "label_name": args.label_name,
+        "aggregated_name": args.aggregated_name,
+        "feature_name": args.feature_name if args.model_type == "feature_router" else None,
+        "batch_size_eval": args.batch_size,
+        "official": bool(args.official),
+        "tags": tags,
+        "metrics": {
+            "accuracy": router_perf.get("accuracy", {}).get("mean", 0.0),
+            "llm_judge_correct": router_perf.get("llm_judge_correct", {}).get("mean", 0.0),
+            "semantic_f1": router_perf.get("semantic_f1", {}).get("mean", 0.0),
+            "token_f1": router_perf.get("token_f1", {}).get("mean", 0.0),
+            "macro_f1": cls.get("macro_f1", 0.0),
+            "weighted_f1": cls.get("weighted_f1", 0.0),
+            "balanced_accuracy": cls.get("balanced_accuracy", 0.0),
+            "per_class_recall": recalls,
+            "gain_llm_judge_correct_vs_best_baseline": comparison.get("llm_judge_correct", {}).get("gain", 0.0),
+            "gain_semantic_f1_vs_best_baseline": comparison.get("semantic_f1", {}).get("gain", 0.0),
+            "gain_token_f1_vs_best_baseline": comparison.get("token_f1", {}).get("gain", 0.0),
+        },
+        "result_path": str(eval_path),
+    }
+
+    existing_idx = None
+    for i, r in enumerate(registry["records"]):
+        if r.get("experiment_id") == exp_id:
+            existing_idx = i
+            break
+
+    if existing_idx is not None:
+        registry["records"][existing_idx] = record
+    else:
+        registry["records"].append(record)
+
+    registry["metadata"] = {
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "num_records": len(registry["records"]),
+        "schema_version": "v1",
+    }
+
+    with summary_path.open("w", encoding="utf-8") as f:
+        json.dump(registry, f, ensure_ascii=False, indent=2)
+
+    return summary_path
 
 
 def _compute_mean_metrics(
@@ -494,6 +700,14 @@ def main() -> int:
         strategy_names,
     )
 
+    # Classification diagnostics
+    print("Computing classification diagnostics...")
+    classification_diagnostics = compute_classification_diagnostics(
+        predictions,
+        labels,
+        strategy_names,
+    )
+
     # Build result
     result = {
         "metadata": {
@@ -507,6 +721,7 @@ def main() -> int:
             "strategy_names": strategy_names,
         },
         "router_performance": router_metrics,
+        "classification_diagnostics": classification_diagnostics,
         "single_baseline": baseline_metrics,
         "oracle": oracle_metrics,
         "comparison": comparison,
@@ -522,6 +737,10 @@ def main() -> int:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
     print(f"\nEvaluation saved to: {eval_path}")
+
+    if args.register_summary:
+        summary_path = register_summary(args, result, eval_path)
+        print(f"Summary registry updated: {summary_path}")
 
     # Print summary
     _print_summary(result)
@@ -549,6 +768,21 @@ def _print_summary(result: Dict[str, Any]) -> None:
     for metric_name in ["llm_judge_correct", "semantic_f1", "token_f1", "accuracy"]:
         val = router.get(metric_name, {}).get("mean", 0)
         print(f"  {metric_name}: {val:.4f}")
+
+    cls = result.get("classification_diagnostics", {}).get("classification_report", {})
+    print("\n--- Classification Diagnostics ---")
+    print(f"  macro_precision: {cls.get('macro_precision', 0.0):.4f}")
+    print(f"  macro_recall: {cls.get('macro_recall', 0.0):.4f}")
+    print(f"  macro_f1: {cls.get('macro_f1', 0.0):.4f}")
+    print(f"  weighted_f1: {cls.get('weighted_f1', 0.0):.4f}")
+    print(f"  balanced_accuracy: {cls.get('balanced_accuracy', 0.0):.4f}")
+
+    per_class = cls.get("per_class", {})
+    print("\n--- Per-Class Recall ---")
+    for strategy in metadata["strategy_names"]:
+        recall = per_class.get(strategy, {}).get("recall", 0.0)
+        support = per_class.get(strategy, {}).get("support", 0)
+        print(f"  {strategy}: recall={recall:.4f}, support={support}")
 
     print("\n--- Token Overhead (Router) ---")
     for metric_name in ["input_tokens", "output_tokens"]:

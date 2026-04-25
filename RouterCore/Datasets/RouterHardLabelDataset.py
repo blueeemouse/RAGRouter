@@ -32,23 +32,25 @@ class RouterHardLabelTextDataset(Dataset):
         split: str,
         split_name: str = "split_v1",
         label_name: str = "hard_llm_correct_rule_v1",
+        aggregated_name: str = "query_metrics_v1",
     ):
         self.dataset_name = dataset_name
         self.result_model = result_model
         self.split = split
         self.split_name = split_name
         self.label_name = label_name
+        self.aggregated_name = aggregated_name
 
-        aggregated = self.load_aggregated(dataset_name, result_model)
+        aggregated = self.load_aggregated(dataset_name, result_model, aggregated_name)
         hard_labels = self.load_hard_labels(dataset_name, result_model, label_name)
         split_data = self.load_split(dataset_name, split_name)
 
         self.samples = self.build_samples(aggregated, hard_labels, split_data, split)
         self.strategy_names = self.extract_strategy_names(hard_labels)
 
-    def load_aggregated(self, dataset_name: str, result_model: str) -> Dict[str, Any]:
+    def load_aggregated(self, dataset_name: str, result_model: str, aggregated_name: str) -> Dict[str, Any]:
         """Load aggregated router data."""
-        aggregated_path = RouterPathConfig.get_aggregated_path(dataset_name, result_model)
+        aggregated_path = RouterPathConfig.get_aggregated_path(dataset_name, result_model, f"{aggregated_name}.json")
         if not aggregated_path.exists():
             raise FileNotFoundError(f"Missing aggregated router data file: {aggregated_path}")
         with aggregated_path.open("r", encoding="utf-8") as f:
@@ -145,6 +147,7 @@ class RouterHardLabelFeatureDataset(Dataset):
         label_name: str = "hard_llm_correct_rule_v1",
         feature_name: str = "mean_hidden",
         load_questions: bool = False,
+        aggregated_name: str = "query_metrics_v1",
     ):
         self.dataset_name = dataset_name
         self.result_model = result_model
@@ -153,6 +156,7 @@ class RouterHardLabelFeatureDataset(Dataset):
         self.label_name = label_name
         self.feature_name = feature_name
         self.load_questions = load_questions
+        self.aggregated_name = aggregated_name
 
         hard_labels = self.load_hard_labels(dataset_name, result_model, label_name)
         split_data = self.load_split(dataset_name, split_name)
@@ -164,7 +168,7 @@ class RouterHardLabelFeatureDataset(Dataset):
         # Load aggregated data for questions if needed
         aggregated_by_id = None
         if self.load_questions:
-            aggregated = self.load_aggregated(dataset_name, result_model)
+            aggregated = self.load_aggregated(dataset_name, result_model, aggregated_name)
             aggregated_by_id = self.index_samples_by_id(aggregated.get("samples"), source_name="aggregated")
 
         self.samples = self.build_feature_samples(split_ids, labels_by_id, aggregated_by_id)
@@ -186,9 +190,9 @@ class RouterHardLabelFeatureDataset(Dataset):
         with split_path.open("r", encoding="utf-8") as f:
             return json.load(f)
 
-    def load_aggregated(self, dataset_name: str, result_model: str) -> Dict[str, Any]:
+    def load_aggregated(self, dataset_name: str, result_model: str, aggregated_name: str) -> Dict[str, Any]:
         """Load aggregated router data (for questions)."""
-        aggregated_path = RouterPathConfig.get_aggregated_path(dataset_name, result_model)
+        aggregated_path = RouterPathConfig.get_aggregated_path(dataset_name, result_model, f"{aggregated_name}.json")
         if not aggregated_path.exists():
             raise FileNotFoundError(f"Missing aggregated router data file: {aggregated_path}")
         with aggregated_path.open("r", encoding="utf-8") as f:

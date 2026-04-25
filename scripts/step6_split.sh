@@ -4,7 +4,7 @@
 
 set -e
 
-DATASET=${1:-"musique"}
+DATASET=${1:-"quality"}
 RESULT_MODEL=${2:-"llama-3.1-8b-awq-int4"}
 VERSION=${3:-"v5"}
 TRAIN_RATIO=${4:-"0.8"}
@@ -15,8 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
-LABEL_NAME="hard_llm_correct_rule_${VERSION}"
-SPLIT_NAME="split_${VERSION}_$(echo "$TRAIN_RATIO" | tr -d '.')_$(echo "$VAL_RATIO" | tr -d '.')_1"
+# LABEL_NAME="hard_llm_correct_rule_${VERSION}"
+LABEL_NAME="hard_llm_correct_rule"
+# SPLIT_NAME="split_${VERSION}_$(echo "$TRAIN_RATIO" | tr -d '.')_$(echo "$VAL_RATIO" | tr -d '.')_1"
+SPLIT_NAME="split_$(echo "$TRAIN_RATIO" | tr -d '.')_$(echo "$VAL_RATIO" | tr -d '.')_1"
 
 echo "============================================================"
 echo "Step 6: Split Building"

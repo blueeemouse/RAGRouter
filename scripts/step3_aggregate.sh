@@ -4,7 +4,7 @@
 
 set -e
 
-DATASET=${1:-"musique"}
+DATASET=${1:-"quality"}
 RESULT_MODEL=${2:-"llama-3.1-8b-awq-int4"}
 VERSION=${3:-"v5"}
 
@@ -13,7 +13,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # SAVE_NAME="query_metrics_${VERSION}"
-SAVE_NAME="query_metrics"
+SAVE_NAME="query_metrics_3class"
 
 echo "============================================================"
 echo "Step 3: Aggregation"
