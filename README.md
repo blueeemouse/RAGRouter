@@ -1,3 +1,4 @@
+
 # RAGRouter
 
 RAGRouter is a RAG benchmark framework with trainable router support, built on top of RAGRouter-Bench.
