@@ -31,6 +31,8 @@ from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 from nltk.translate.meteor_score import meteor_score
 from rouge_score import rouge_scorer
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+
 from Config.LLMConfig import LLMConfig
 from Config.PathConfig import PathConfig
 from Config.EmbConfig import EmbConfig
@@ -136,7 +138,7 @@ class ResultEvaluator:
                 if line.strip():
                     record = json.loads(line)
                     # Handle different answer field names
-                    answer = record.get('rag_answer') or record.get('answer') or record.get('llm_answer') or record.get('final_answer', '')
+                    answer = record.get('rag_answer') or record.get('answer') or record.get('final_answer') or record.get('llm_answer', '')
                     answers[record['id']] = answer
 
         return answers
@@ -285,7 +287,137 @@ class ResultEvaluator:
             print(f"Warning: Failed to compute semantic F1 batch: {e}")
             return [0.0] * len(predictions)
 
-    def evaluate_soft_coverage(self, ground_truth: str, predicted: str) -> float:
+    def compute_token_f1(self, ground_truth: str, predicted: str) -> float:
+        """Compute token-level F1 score between ground truth and predicted answer.
+
+        Based on /home/lhz/code/Memory-in-the-LLM-Era/code/eval.py calculate_f1_score().
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            F1 score from 0-1 (returns 0.0 for refusal answers)
+        """
+        # Return 0 for refusal answers
+        if self._is_refusal(predicted):
+            return 0.0
+
+        try:
+            # Tokenize and lowercase
+            gold_tokens = nltk.word_tokenize(ground_truth.lower())
+            response_tokens = nltk.word_tokenize(predicted.lower())
+
+            # Compute sets
+            gold_set = set(gold_tokens)
+            response_set = set(response_tokens)
+
+            if len(gold_set) == 0 or len(response_set) == 0:
+                return 0.0
+
+            # Precision and recall
+            intersection = gold_set.intersection(response_set)
+            precision = len(intersection) / len(response_set)
+            recall = len(intersection) / len(gold_set)
+
+            # F1
+            if precision + recall > 0:
+                return 2 * precision * recall / (precision + recall)
+            return 0.0
+        except Exception as e:
+            print(f"Warning: Failed to compute token F1: {e}")
+            return 0.0
+
+    def compute_bleu1(self, ground_truth: str, predicted: str) -> float:
+        """Compute BLEU-1 score between ground truth and predicted answer.
+
+        Based on /home/lhz/code/Memory-in-the-LLM-Era/code/eval.py calculate_bleu_scores().
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            BLEU-1 score from 0-1 (returns 0.0 for refusal answers)
+        """
+        # Return 0 for refusal answers
+        if self._is_refusal(predicted):
+            return 0.0
+
+        try:
+            # Tokenize
+            gold_tokens = nltk.word_tokenize(ground_truth.lower())
+            response_tokens = nltk.word_tokenize(predicted.lower())
+
+            # Use sentence_bleu with unigram weights (1, 0, 0, 0)
+            smoothing = SmoothingFunction().method1
+            bleu1 = sentence_bleu(
+                [gold_tokens],
+                response_tokens,
+                weights=(1, 0, 0, 0),
+                smoothing_function=smoothing
+            )
+            return bleu1
+        except ZeroDivisionError:
+            return 0.0
+        except Exception as e:
+            print(f"Warning: Failed to compute BLEU-1: {e}")
+            return 0.0
+
+    def compute_rouge_scores(self, ground_truth: str, predicted: str) -> Dict[str, float]:
+        """Compute ROUGE-1, ROUGE-2, ROUGE-L scores.
+
+        Based on /home/lhz/code/Memory-in-the-LLM-Era/code/eval.py calculate_rouge_scores().
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            Dict with rouge1_f, rouge2_f, rougeL_f scores from 0-1 (returns all 0.0 for refusal answers)
+        """
+        # Return 0 for refusal answers
+        metrics = {"rouge1_f": 0.0, "rouge2_f": 0.0, "rougeL_f": 0.0}
+        if self._is_refusal(predicted):
+            return metrics
+
+        try:
+            scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
+            rouge_scores = scorer.score(ground_truth, predicted)
+            metrics["rouge1_f"] = rouge_scores["rouge1"].fmeasure
+            metrics["rouge2_f"] = rouge_scores["rouge2"].fmeasure
+            metrics["rougeL_f"] = rouge_scores["rougeL"].fmeasure
+        except Exception as e:
+            print(f"Warning: Failed to compute ROUGE scores: {e}")
+        return metrics
+
+    def compute_meteor(self, ground_truth: str, predicted: str) -> float:
+        """Compute METEOR score between ground truth and predicted answer.
+
+        Based on /home/lhz/code/Memory-in-the-LLM-Era/code/eval.py calculate_meteor_score_value().
+
+        Args:
+            ground_truth: Ground truth answer
+            predicted: Predicted answer
+
+        Returns:
+            METEOR score from 0-1 (returns 0.0 for refusal answers)
+        """
+        # Return 0 for refusal answers
+        if self._is_refusal(predicted):
+            return 0.0
+
+        try:
+            # Tokenize
+            gold_tokens = nltk.word_tokenize(ground_truth.lower())
+            response_tokens = nltk.word_tokenize(predicted.lower())
+
+            # Compute METEOR score
+            meteor = meteor_score([gold_tokens], response_tokens)
+            return meteor
+        except Exception as e:
+            print(f"Warning: Failed to compute METEOR score: {e}")
+            return 0.0
         """Evaluate soft coverage using SentenceTransformer
 
         Soft COV: Mean of max similarities between GT (as fact) and prediction sentences.
@@ -963,7 +1095,9 @@ class ResultEvaluator:
         retriever_type: str = "naive",
         resume: bool = True,
         skip_llm: bool = False,
-        max_concurrent: int = 10
+        max_concurrent: int = 10,
+        limit: Optional[int] = None,
+        save_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Evaluate all metrics for a dataset and method
 
@@ -977,6 +1111,8 @@ class ResultEvaluator:
             resume: If True, skip already evaluated questions
             skip_llm: If True, skip LLM-based evaluation (faster)
             max_concurrent: Maximum concurrent LLM calls for parallel evaluation (default: 10)
+            limit: Optional max number of questions to evaluate (for quick validation)
+            save_name: Optional output filename stem (without .json) for no-overwrite saves
 
         Returns:
             List of evaluation results with all metrics
@@ -995,13 +1131,16 @@ class ResultEvaluator:
         evaluated_ids = set()
 
         if resume:
-            results = EvaluationSaver.load(model_name, dataset_name, method, retriever_type)
+            results = EvaluationSaver.load(model_name, dataset_name, method, retriever_type, save_name)
             if results:
                 evaluated_ids = {r['id'] for r in results}
                 print(f"Resuming: Found {len(evaluated_ids)} already evaluated")
 
         # Get questions to evaluate
         to_evaluate = [qid for qid in questions.keys() if qid in answers and qid not in evaluated_ids]
+        if limit is not None and limit > 0:
+            to_evaluate = to_evaluate[:limit]
+            print(f"Applying limit: evaluating first {len(to_evaluate)} questions")
 
         if not to_evaluate:
             print("All questions already evaluated!")
@@ -1034,7 +1173,7 @@ class ResultEvaluator:
         print("[3/4] Computing Faithfulness...")
 
         new_results = []
-        for i, qid in enumerate(tqdm(batch_qids, desc="Coverage & Faithfulness")):
+        for i, qid in enumerate(tqdm(batch_qids, desc="Coverage & Faithfulness & New Metrics")):
             q_data = questions[qid]
             ground_truth = q_data['answer']
             predicted = answers.get(qid, '')
@@ -1093,7 +1232,7 @@ class ResultEvaluator:
         results.extend(new_results)
 
         # Final save
-        EvaluationSaver.save(results, model_name, dataset_name, method, retriever_type)
+        EvaluationSaver.save(results, model_name, dataset_name, method, retriever_type, save_name)
 
         # Print summary
         self._print_evaluation_summary(results, model_name=model_name,
